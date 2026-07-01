@@ -270,7 +270,7 @@ model CaseStatusHistory {
   // changedBy    Staff         @relation("ChangedByStaff", fields: [changedById], references: [id])
   oldStatus    CaseStatus
   newStatus    CaseStatus
-  oldPriority  CasePriority?
+  oldPriority  CasePriority?  
   newPriority  CasePriority?
   oldAgentId   String?
   newAgentId   String?
@@ -330,5 +330,5 @@ model EmailLog {
   sentAt         DateTime?
   createdAt      DateTime    @default(now())
 
-  @@map("email_logs")
+  @@map("email_logs") 
 }
