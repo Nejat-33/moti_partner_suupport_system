@@ -1,0 +1,334 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum StaffRole {
+  SYSTEM_ADMIN
+  ADMIN
+  PS_SUPPORT
+  AGENT
+} 
+
+enum StaffStatus{
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+  UNVERIFIED
+}
+
+enum CustomerStatus {
+  PENDING_VERIFICATION
+  PENDING_APPROVAL
+  ACTIVE
+  REJECTED
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum TokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+enum CaseStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum CasePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum PartyType {
+  CUSTOMER
+  STAFF
+}
+
+
+enum NotificationType {
+  NEW_CUSTOMER_REGISTRATION
+  INVITE_EXPIRED
+  NEW_CASE_SUBMITTED
+  CASE_ASSIGNED
+  CASE_REASSIGNED
+  CASE_STATUS_CHANGED
+  CASE_RESOLVED
+  FEEDBACK_SUBMITTED
+  LOW_RATING_ESCALATION
+}
+
+
+enum EmailType {
+  EMAIL_VERIFICATION
+  ACCOUNT_APPROVED
+  ACCOUNT_REJECTED
+  STAFF_INVITE
+  PASSWORD_RESET
+  CASE_ASSIGNED
+  CASE_STATUS_CHANGED
+  CASE_RESOLVED
+  FEEDBACK_ESCALATION
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum FieldType {
+  TEXT
+  TEXTAREA
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+}
+
+model Department {
+  id  String  @id @default(uuid())
+  name String  @unique @db.VarChar(120)
+  is_active Boolean @default(true)
+  createdAt DateTime @default(now())
+  createdBy String?
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  @@map("departments")
+}
+
+model Organization {
+  id  String @id @default(uuid())
+  name String @unique @db.VarChar(120)
+  is_active  Boolean @default(true)
+  createdAt  DateTime @default(now())
+
+  @@map("organizations")
+}
+
+model Staff {
+  id String @id @default(uuid())
+  fullname String @db.VarChar(120)
+  email  String @unique @db.VarChar(255)
+  password_hash  String @db.VarChar(255)
+  departmentId  String?
+  // department   Department? @relation(fields: [departmentId], references: [id])
+  role  StaffRole 
+  status  StaffStatus  @default(UNVERIFIED)
+  failedLogCount Int  @default(0)
+  lockedUntil  String?
+  createdAt  DateTime  @default(now())
+  createdBy  String?
+  updatedBy  String?
+  updatedAt  DateTime  @updatedAt
+}
+
+
+model Customer {
+  id               String         @id @default(uuid())
+  fullName         String         @db.VarChar(100)
+  email            String         @unique @db.VarChar(255)
+  phoneNumber      String         @db.VarChar(30)
+  passwordHash     String         @db.VarChar(255)
+  position         String         @db.VarChar(100)
+  organizationId   String
+  // organization     Organization   @relation(fields: [organizationId], references: [id])
+  status           CustomerStatus @default(PENDING_VERIFICATION)
+  emailVerifiedAt  DateTime? 
+  rejectionReason  String?        @db.Text 
+  failedLoginCount Int            @default(0)
+  lockedUntil      DateTime?
+  createdAt        DateTime       @default(now())
+  createdBy        String?
+  updatedAt        DateTime       @updatedAt
+  updatedBy        String?
+
+  @@map("customers")
+}
+
+model AuthToken {
+  id        String    @id @default(uuid())
+  userId    String?
+  userType  PartyType
+  tokenType TokenType
+  tokenHash String    @db.VarChar(255)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@map("auth_tokens")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String?
+  userType   PartyType
+  tokenHash  String    @db.VarChar(255)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@map("refresh_tokens")
+}
+
+model ProductCategory {
+  id        String   @id @default(uuid())
+  name      String   @unique @db.VarChar(100)
+  brandName String?  @db.VarChar(150)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  createdBy String?
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+
+  subcategories ProductSubcategory[]
+  cases         Case[]
+
+  @@map("product_categories")
+}
+
+model ProductSubcategory {
+  id                String          @id @default(uuid())
+  name              String          @db.VarChar(100)
+  productCategoryId String
+  productCategory   ProductCategory @relation(fields: [productCategoryId], references: [id])
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  createdBy         String?
+  updatedAt         DateTime        @updatedAt
+  updatedBy         String?
+
+  @@unique([productCategoryId, name])
+  @@map("product_subcategories")
+}
+
+model ServiceType {
+  id        String   @id @default(uuid())
+  name      String   @unique @db.VarChar(150)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@map("service_types")
+}
+
+
+model Case {
+  id                   String              @id @default(uuid())
+  caseNumber           String              @unique @db.VarChar(20)
+  branchName           String              @db.VarChar(255)
+  customerId           String
+  // customer             Customer            @relation(fields: [customerId], references: [id])
+  assignedAgentId      String?
+  // assignedAgent        Staff?              @relation("AssignedAgent", fields: [assignedAgentId], references: [id])
+  productCategoryId    String
+  productCategory      ProductCategory     @relation(fields: [productCategoryId], references: [id])
+  productSubcategoryId String? 
+  // productSubcategory   ProductSubcategory? @relation(fields: [productSubcategoryId], references: [id])
+  subject              String              @db.VarChar(255)
+  description          String              @db.Text
+  status               CaseStatus          @default(OPEN)
+  priority             CasePriority?
+  serviceTypeId        String
+  // serviceType          ServiceType         @relation(fields: [serviceTypeId], references: [id])
+  resolutionSummary    String?             @db.Text
+  resolvedAt           DateTime?
+  closedAt             DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+
+  statusHistory  CaseStatusHistory[]
+  attachments    Attachment[]
+  feedback       Feedback?
+  notifications  Notification[]
+
+  @@map("cases")
+}
+
+
+model CaseStatusHistory {
+  id           String        @id @default(uuid())
+  caseId       String
+  case         Case          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  changedById  String
+  // changedBy    Staff         @relation("ChangedByStaff", fields: [changedById], references: [id])
+  oldStatus    CaseStatus
+  newStatus    CaseStatus
+  oldPriority  CasePriority?
+  newPriority  CasePriority?
+  oldAgentId   String?
+  newAgentId   String?
+  changedAt    DateTime      @default(now())
+
+  @@map("case_status_histories")
+}
+
+model Attachment {
+  id             String    @id @default(uuid())
+  caseId         String
+  case           Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  uploadedBy     String 
+  uploaderType   PartyType
+  fileName       String    @db.VarChar(255)
+  storagePath    String    @db.VarChar(500)
+  fileSizeBytes  BigInt
+  mimeType       String    @db.VarChar(100)
+  uploadedAt     DateTime  @default(now())
+
+  @@map("attachments")
+}
+
+model Feedback {
+  id          String   @id @default(uuid())
+  caseId      String   @unique
+  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  rating      Int      @db.SmallInt 
+  comment     String?  @db.Text
+  submittedAt DateTime @default(now())
+
+  @@map("feedbacks")
+}
+
+model Notification {
+  id            String           @id @default(uuid())
+  recipientId   String 
+  recipientType PartyType
+  caseId        String?
+  case          Case?            @relation(fields: [caseId], references: [id])
+  type          NotificationType
+  message       String           @db.VarChar(500)
+  isRead        Boolean          @default(false)
+  createdAt     DateTime         @default(now())
+
+  @@map("notifications")
+}
+
+model EmailLog {
+  id             String      @id @default(uuid())
+  recipientId    String?
+  recipientEmail String      @db.VarChar(255)
+  emailType      EmailType
+  relatedCaseId  String?
+  status         EmailStatus @default(PENDING)
+  retryCount     Int         @default(0)
+  sentAt         DateTime?
+  createdAt      DateTime    @default(now())
+
+  @@map("email_logs")
+}
