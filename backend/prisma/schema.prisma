@@ -1,30 +1,20 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
   provider = "prisma-client"
-  output   = "../generated/prisma"
+    output   = "../generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
 }
 
-enum StaffRole {
-  SYSTEM_ADMIN
-  ADMIN
-  PS_SUPPORT
-  AGENT
-} 
-
-enum StaffStatus{
+enum StaffStatus {
+  PENDING
   ACTIVE
   SUSPENDED
   DEACTIVATED
-  UNVERIFIED
 }
+
 
 enum CustomerStatus {
   PENDING_VERIFICATION
@@ -33,11 +23,6 @@ enum CustomerStatus {
   REJECTED
   SUSPENDED
   DEACTIVATED
-}
-
-enum TokenType {
-  EMAIL_VERIFICATION
-  PASSWORD_RESET
 }
 
 enum CaseStatus {
@@ -55,35 +40,34 @@ enum CasePriority {
   URGENT
 }
 
+enum TokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
 enum PartyType {
   CUSTOMER
   STAFF
 }
 
-
 enum NotificationType {
   NEW_CUSTOMER_REGISTRATION
-  INVITE_EXPIRED
   NEW_CASE_SUBMITTED
   CASE_ASSIGNED
   CASE_REASSIGNED
   CASE_STATUS_CHANGED
   CASE_RESOLVED
   FEEDBACK_SUBMITTED
-  LOW_RATING_ESCALATION
 }
-
 
 enum EmailType {
   EMAIL_VERIFICATION
   ACCOUNT_APPROVED
   ACCOUNT_REJECTED
-  STAFF_INVITE
   PASSWORD_RESET
   CASE_ASSIGNED
   CASE_STATUS_CHANGED
   CASE_RESOLVED
-  FEEDBACK_ESCALATION
 }
 
 enum EmailStatus {
@@ -92,53 +76,79 @@ enum EmailStatus {
   FAILED
 }
 
-enum FieldType {
-  TEXT
-  TEXTAREA
-  NUMBER
-  DATE
-  BOOLEAN
-  SELECT
+enum Gender {
+  MALE
+  FEMALE
 }
 
+
+
 model Department {
-  id  String  @id @default(uuid())
-  name String  @unique @db.VarChar(120)
-  is_active Boolean @default(true)
+  id        String   @id @default(uuid())
+  name      String   @unique @db.VarChar(100)
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
-  createdBy String?
+  createdById String?
+  createdBy   Staff?  @relation("DepartmentCreatedBy", fields: [createdById], references: [id])
   updatedAt DateTime @updatedAt
-  updatedBy String?
+  updatedById String?
+  updatedBy   Staff?   @relation("DepartmentUpdatedBy", fields: [updatedById], references: [id])
+
+  staff Staff[]
 
   @@map("departments")
 }
 
 model Organization {
-  id  String @id @default(uuid())
-  name String @unique @db.VarChar(120)
-  is_active  Boolean @default(true)
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  name      String   @unique @db.VarChar(150)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  createdBy String?
+  updatedAt DateTime  @updatedAt
+  updatedBy String?
+
+  customers Customer[]
 
   @@map("organizations")
 }
 
 model Staff {
-  id String @id @default(uuid())
-  fullname String @db.VarChar(120)
-  email  String @unique @db.VarChar(255)
-  password_hash  String @db.VarChar(255)
-  departmentId  String?
-  // department   Department? @relation(fields: [departmentId], references: [id])
-  role  StaffRole 
-  status  StaffStatus  @default(UNVERIFIED)
-  failedLogCount Int  @default(0)
-  lockedUntil  String?
-  createdAt  DateTime  @default(now())
-  createdBy  String?
-  updatedBy  String?
-  updatedAt  DateTime  @updatedAt
-}
+  id                String      @id @default(uuid())
+  fullName          String      @db.VarChar(100)
+  email             String      @unique @db.VarChar(255)
+  passwordHash      String      @db.VarChar(255)
+  gender            Gender
+  departmentId      String?
+  department        Department? @relation(fields: [departmentId], references: [id])
+  isSAdmin          Boolean     @default(false)
+  isManager         Boolean     @default(false)
+  isPSsupport       Boolean     @default(true)
+  status            StaffStatus @default(PENDING)
+  failedLoginCount  Int         @default(0)
+  lockedUntil       DateTime?
+  createdAt        DateTime    @default(now())
+  createdById      String?
+  createdBy        Staff?      @relation("StaffCreatedBy", fields: [createdById], references: [id]) // FIX: was a bare scalar, inconsistent with every other model's pattern
+  createdStaff     Staff[]     @relation("StaffCreatedBy")
+  updatedAt        DateTime    @updatedAt
+  updatedById      String?
+  updatedBy        Staff?      @relation("StaffUpdatedBy", fields: [updatedById], references: [id])
+  updatedStaff     Staff[]     @relation("StaffUpdatedBy")
 
+  assignedCases       CaseReport[]              @relation("AssignedPSsupport")
+  statusChangesLogged CaseStatusHistory[] @relation("ChangedByStaff")
+  createdDepartment    Department[]     @relation("DepartmentCreatedBy")
+  updatedDepartment    Department[]     @relation("DepartmentUpdatedBy")
+  createdProductCategory       ProductCategory[]  @relation("ProductCategoryCreatedBy")
+  updatedProductCategory       ProductCategory[]  @relation("ProductCategoryUpdatedBy")
+  createdProductSubCategory        ProductSubcategory[]    @relation("ProductSubCategoryCreatedBy")
+  updatedProductSubCategory        ProductSubcategory[]    @relation("ProductSubCategoryUpdatedBy")
+  closedCaseReport               CaseReport[]      @relation("CaseReportClosedBy")
+  updatedCaseReport              CaseReport[]      @relation("CaseReportUpdatedBy")
+  
+  @@map("staffs")
+}
 
 model Customer {
   id               String         @id @default(uuid())
@@ -147,24 +157,30 @@ model Customer {
   phoneNumber      String         @db.VarChar(30)
   passwordHash     String         @db.VarChar(255)
   position         String         @db.VarChar(100)
+  gender           Gender
   organizationId   String
-  // organization     Organization   @relation(fields: [organizationId], references: [id])
+  organization     Organization   @relation(fields: [organizationId], references: [id])
   status           CustomerStatus @default(PENDING_VERIFICATION)
   emailVerifiedAt  DateTime? 
-  rejectionReason  String?        @db.Text 
   failedLoginCount Int            @default(0)
   lockedUntil      DateTime?
   createdAt        DateTime       @default(now())
-  createdBy        String?
+  createdById      String?
+  createdByType    PartyType        
   updatedAt        DateTime       @updatedAt
-  updatedBy        String?
+  updatedById      String?
+  updatedByType    PartyType
+
+  uploadedAttachment   Attachment[]   @relation("AttachmentUploadedBy")
+  cases               CaseReport[]
+
 
   @@map("customers")
 }
 
 model AuthToken {
   id        String    @id @default(uuid())
-  userId    String?
+  userId    String 
   userType  PartyType
   tokenType TokenType
   tokenHash String    @db.VarChar(255)
@@ -172,17 +188,19 @@ model AuthToken {
   usedAt    DateTime?
   createdAt DateTime  @default(now())
 
+  
   @@map("auth_tokens")
 }
 
 model RefreshToken {
   id         String    @id @default(uuid())
-  userId     String?
+  userId     String
   userType   PartyType
   tokenHash  String    @db.VarChar(255)
   expiresAt  DateTime
   revokedAt  DateTime?
   createdAt  DateTime  @default(now())
+
 
   @@map("refresh_tokens")
 }
@@ -193,12 +211,14 @@ model ProductCategory {
   brandName String?  @db.VarChar(150)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
-  createdBy String?
+  createdById String
+  createdBy   Staff  @relation("ProductCategoryCreatedBy", fields: [createdById], references: [id])
   updatedAt DateTime @updatedAt
-  updatedBy String?
+  updatedById String?
+  updatedBy   Staff?  @relation("ProductCategoryUpdatedBy", fields: [updatedById], references: [id])
 
   subcategories ProductSubcategory[]
-  cases         Case[]
+  cases         CaseReport[]
 
   @@map("product_categories")
 }
@@ -210,11 +230,14 @@ model ProductSubcategory {
   productCategory   ProductCategory @relation(fields: [productCategoryId], references: [id])
   isActive          Boolean         @default(true)
   createdAt         DateTime        @default(now())
-  createdBy         String?
+  createdById         String
+  createdBy         Staff           @relation("ProductSubCategoryCreatedBy", fields: [createdById], references: [id])
   updatedAt         DateTime        @updatedAt
-  updatedBy         String?
+  updatedById         String?
+  updatedBy         Staff?          @relation("ProductSubCategoryUpdatedBy", fields: [updatedById], references: [id])
 
-  @@unique([productCategoryId, name])
+  cases            CaseReport[]
+
   @@map("product_subcategories")
 }
 
@@ -224,98 +247,107 @@ model ServiceType {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  cases CaseReport[]
+
   @@map("service_types")
 }
 
 
-model Case {
+model CaseReport {
   id                   String              @id @default(uuid())
   caseNumber           String              @unique @db.VarChar(20)
   branchName           String              @db.VarChar(255)
   customerId           String
-  // customer             Customer            @relation(fields: [customerId], references: [id])
-  assignedAgentId      String?
-  // assignedAgent        Staff?              @relation("AssignedAgent", fields: [assignedAgentId], references: [id])
+  customer             Customer            @relation(fields: [customerId], references: [id])
+  assignedPSsupportId      String?
+  assignedPSsupport        Staff?              @relation("AssignedPSsupport", fields: [assignedPSsupportId], references: [id])
   productCategoryId    String
   productCategory      ProductCategory     @relation(fields: [productCategoryId], references: [id])
   productSubcategoryId String? 
-  // productSubcategory   ProductSubcategory? @relation(fields: [productSubcategoryId], references: [id])
+  productSubcategory   ProductSubcategory? @relation(fields: [productSubcategoryId], references: [id])
   subject              String              @db.VarChar(255)
   description          String              @db.Text
   status               CaseStatus          @default(OPEN)
   priority             CasePriority?
   serviceTypeId        String
-  // serviceType          ServiceType         @relation(fields: [serviceTypeId], references: [id])
+  serviceType          ServiceType         @relation(fields: [serviceTypeId], references: [id])
   resolutionSummary    String?             @db.Text
   resolvedAt           DateTime?
   closedAt             DateTime?
+  closedById           String?
+  closedBy             Staff?               @relation("CaseReportClosedBy", fields: [closedById], references: [id])
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
-
+  updatedById          String?
+  updatedBy            Staff?               @relation("CaseReportUpdatedBy", fields: [updatedById], references: [id])
 
   statusHistory  CaseStatusHistory[]
   attachments    Attachment[]
   feedback       Feedback?
   notifications  Notification[]
 
-  @@map("cases")
-}
 
+  @@map("case_report")
+}
 
 model CaseStatusHistory {
   id           String        @id @default(uuid())
-  caseId       String
-  case         Case          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseReportId       String
+  caseReport         CaseReport          @relation(fields: [caseReportId], references: [id], onDelete: Cascade)
   changedById  String
-  // changedBy    Staff         @relation("ChangedByStaff", fields: [changedById], references: [id])
+  changedBy    Staff         @relation("ChangedByStaff", fields: [changedById], references: [id])
   oldStatus    CaseStatus
   newStatus    CaseStatus
-  oldPriority  CasePriority?  
+  oldPriority  CasePriority?
   newPriority  CasePriority?
   oldAgentId   String?
   newAgentId   String?
   changedAt    DateTime      @default(now())
 
-  @@map("case_status_histories")
+  
+  @@map("case_report_status_histories")
 }
 
 model Attachment {
   id             String    @id @default(uuid())
-  caseId         String
-  case           Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  uploadedBy     String 
-  uploaderType   PartyType
+  caseReportId         String
+  case           CaseReport      @relation(fields: [caseReportId], references: [id], onDelete: Cascade)
+  uploadedById     String 
+  uploadedBy     Customer     @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id])
   fileName       String    @db.VarChar(255)
   storagePath    String    @db.VarChar(500)
   fileSizeBytes  BigInt
   mimeType       String    @db.VarChar(100)
   uploadedAt     DateTime  @default(now())
 
+
   @@map("attachments")
 }
 
 model Feedback {
   id          String   @id @default(uuid())
-  caseId      String   @unique
-  case        Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseReportId      String   @unique
+  caseReport        CaseReport     @relation(fields: [caseReportId], references: [id], onDelete: Cascade)
   rating      Int      @db.SmallInt 
-  comment     String?  @db.Text
+  comment      String?    @db.Text
   submittedAt DateTime @default(now())
 
   @@map("feedbacks")
 }
 
+
 model Notification {
   id            String           @id @default(uuid())
   recipientId   String 
   recipientType PartyType
-  caseId        String?
-  case          Case?            @relation(fields: [caseId], references: [id])
+  caseReportId        String?
+  caseReport          CaseReport?            @relation(fields: [caseReportId], references: [id])
   type          NotificationType
   message       String           @db.VarChar(500)
   isRead        Boolean          @default(false)
   createdAt     DateTime         @default(now())
 
+  
   @@map("notifications")
 }
 
@@ -330,5 +362,5 @@ model EmailLog {
   sentAt         DateTime?
   createdAt      DateTime    @default(now())
 
-  @@map("email_logs") 
+  @@map("email_logs")
 }
