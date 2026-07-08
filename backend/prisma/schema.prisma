@@ -1,7 +1,7 @@
 
 generator client {
   provider = "prisma-client"
-    output   = "../generated/prisma"
+  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -9,8 +9,9 @@ datasource db {
 }
 
 enum StaffStatus {
-  PENDING
-  ACTIVE
+   PENDING_VERIFICATION
+   PENDING_APPROVAL
+   ACTIVE
   SUSPENDED
   DEACTIVATED
 }
@@ -93,11 +94,54 @@ model Department {
   updatedAt DateTime @updatedAt
   updatedById String?
   updatedBy   Staff?   @relation("DepartmentUpdatedBy", fields: [updatedById], references: [id])
+  
+  managerId String?   @unique
+  manager   Staff?  @relation("DepartmentManager", fields: [managerId], references: [id])
 
-  staff Staff[]
+  divisions Division[]
 
   @@map("departments")
 }
+
+
+model Division {
+  id           String   @id @default(uuid())
+  name         String   @db.VarChar(100)
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdBy    String?
+  updatedBy    String?
+
+  managerId String?    @unique
+  manager   Staff?  @relation("DivisionManager", fields: [managerId], references: [id])
+
+  sections Section[]
+
+  @@map("divisions")
+}
+
+model Section {
+  id         String   @id @default(uuid())
+  name       String   @db.VarChar(100)
+  divisionId String
+  division   Division @relation(fields: [divisionId], references: [id])
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  createdBy  String?
+  updatedBy  String?
+
+  managerId String? @unique
+  manager   Staff?  @relation("SectionManager", fields: [managerId], references: [id])
+
+  staff Staff[] @relation("SectionMembers")
+
+  @@map("sections")
+}
+
 
 model Organization {
   id        String   @id @default(uuid())
@@ -119,12 +163,12 @@ model Staff {
   email             String      @unique @db.VarChar(255)
   passwordHash      String      @db.VarChar(255)
   gender            Gender
-  departmentId      String?
-  department        Department? @relation(fields: [departmentId], references: [id])
+  sectionId        String?
+  section          Section?    @relation("SectionMembers", fields: [sectionId], references: [id])
   isSAdmin          Boolean     @default(false)
   isManager         Boolean     @default(false)
   isPSsupport       Boolean     @default(true)
-  status            StaffStatus @default(PENDING)
+  status            StaffStatus @default(PENDING_VERIFICATION)
   failedLoginCount  Int         @default(0)
   lockedUntil       DateTime?
   createdAt        DateTime    @default(now())
@@ -137,6 +181,9 @@ model Staff {
   updatedStaff     Staff[]     @relation("StaffUpdatedBy")
 
   assignedCases       CaseReport[]              @relation("AssignedPSsupport")
+  managedDepartment         Department?              @relation("DepartmentManager")
+  managedDivision           Division?                @relation("DivisionManager")
+  managedSection            Section?                 @relation("SectionManager")
   statusChangesLogged CaseStatusHistory[] @relation("ChangedByStaff")
   createdDepartment    Department[]     @relation("DepartmentCreatedBy")
   updatedDepartment    Department[]     @relation("DepartmentUpdatedBy")
@@ -146,9 +193,16 @@ model Staff {
   updatedProductSubCategory        ProductSubcategory[]    @relation("ProductSubCategoryUpdatedBy")
   closedCaseReport               CaseReport[]      @relation("CaseReportClosedBy")
   updatedCaseReport              CaseReport[]      @relation("CaseReportUpdatedBy")
+    uploadedAttachments       Attachment[]             @relation("AttachmentUploadedByStaff") // FIX: staff can now be an uploader too, see Attachment model
+
   
   @@map("staffs")
 }
+
+
+
+
+
 
 model Customer {
   id               String         @id @default(uuid())
@@ -171,7 +225,7 @@ model Customer {
   updatedById      String?
   updatedByType    PartyType
 
-  uploadedAttachment   Attachment[]   @relation("AttachmentUploadedBy")
+  uploadedAttachments Attachment[] @relation("AttachmentUploadedByCustomer")
   cases               CaseReport[]
 
 
@@ -312,8 +366,11 @@ model Attachment {
   id             String    @id @default(uuid())
   caseReportId         String
   case           CaseReport      @relation(fields: [caseReportId], references: [id], onDelete: Cascade)
-  uploadedById     String 
-  uploadedBy     Customer     @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id])
+ uploaderType          PartyType
+  uploadedByCustomerId  String?
+  uploadedByCustomer    Customer? @relation("AttachmentUploadedByCustomer", fields: [uploadedByCustomerId], references: [id])
+  uploadedByStaffId     String?
+  uploadedByStaff       Staff?    @relation("AttachmentUploadedByStaff", fields: [uploadedByStaffId], references: [id])
   fileName       String    @db.VarChar(255)
   storagePath    String    @db.VarChar(500)
   fileSizeBytes  BigInt

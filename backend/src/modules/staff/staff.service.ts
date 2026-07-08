@@ -3,132 +3,233 @@ import { BcryptUtils } from "../../utils/bcrypt";
 import { sendVerificationEmail } from "../../utils/email";
 import crypto from "crypto";
 
-export const StaffService = {
-  selfRegister: async (data: {
-    fullName: string;
-    email: string;
-    passwordPlain: string;
-    gender: "MALE" | "FEMALE";
-    departmentId?: string;
-  }) => {
-    const emailExistsInStaff = await prisma.staff.findUnique({
-      where: { email: data.email },
+const ALLOWED_STAFF_DOMAIN = "motiengineering.com";
+
+export const Register = async (data: {
+  fullName: string;
+  email: string;
+  passwordPlain: string;
+  gender: "MALE" | "FEMALE";
+}) => {
+  const emailParts = data.email.split("@");
+  const userDomain = emailParts[1]?.toLowerCase();
+
+  // if (!userDomain || userDomain !== ALLOWED_STAFF_DOMAIN) {
+  //   throw new Error(
+  //     "Registration Denied. You must use an official corporate email address.",
+  //   );
+  // }
+
+  const emailExistsInStaff = await prisma.staff.findUnique({
+    where: { email: data.email },
+  });
+  const emailExistsInCustomers = await prisma.customer.findUnique({
+    where: { email: data.email },
+  });
+
+  if (emailExistsInStaff || emailExistsInCustomers) {
+    throw new Error("An account with this email address already exists.");
+  }
+
+  const passwordHash = await BcryptUtils.hash(data.passwordPlain);
+
+  const txResult = await prisma.$transaction(async (tx) => {
+    const newStaff = await tx.staff.create({
+      data: {
+        fullName: data.fullName,
+        email: data.email,
+        passwordHash,
+        gender: data.gender,
+        isSAdmin: false,
+        isManager: false,
+        isPSsupport: true,
+        status: "PENDING_VERIFICATION",
+      },
     });
-    const emailExistsInCustomers = await prisma.customer.findUnique({
-      where: { email: data.email },
+
+    const selfReferencedStaff = await tx.staff.update({
+      where: { id: newStaff.id },
+      data: {
+        createdById: newStaff.id,
+        updatedById: newStaff.id,
+      },
     });
 
-    if (emailExistsInStaff || emailExistsInCustomers) {
-      throw new Error("An account with this email address already exists.");
-    }
-
-    const passwordHash = await BcryptUtils.hash(data.passwordPlain);
-
-    return await prisma.$transaction(async (tx) => {
-      const newStaff = await tx.staff.create({
-        data: {
-          fullName: data.fullName,
-          email: data.email,
-          passwordHash,
-          gender: data.gender,
-          departmentId: data.departmentId || null,
-          isSAdmin: false,
-          isManager: false,
-          isPSsupport: true,
-          status: "PENDING",
-        },
-      });
-
-      const selfReferencedStaff = await tx.staff.update({
-        where: { id: newStaff.id },
-        data: {
-          createdById: newStaff.id,
-          updatedById: newStaff.id,
-        },
-      });
-
-      const rawToken = crypto.randomBytes(32).toString("hex");
-      const tokenHash = crypto
-        .createHash("sha256")
-        .update(rawToken)
-        .digest("hex");
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-      await tx.authToken.create({
-        data: {
-          userId: selfReferencedStaff.id,
-          userType: "STAFF",
-          tokenType: "EMAIL_VERIFICATION",
-          tokenHash,
-          expiresAt,
-        },
-      });
-
-      const loggedEmail = await tx.emailLog.create({
-        data: {
-          recipientId: selfReferencedStaff.id,
-          recipientEmail: selfReferencedStaff.email,
-          emailType: "EMAIL_VERIFICATION",
-          status: "PENDING",
-        },
-      });
-
-      setImmediate(async () => {
-        const deliverySuccess = await sendVerificationEmail(
-          selfReferencedStaff.email,
-          selfReferencedStaff.fullName,
-          rawToken,
-          "STAFF",
-        );
-
-        await prisma.emailLog.update({
-          where: { id: loggedEmail.id },
-          data: {
-            status: deliverySuccess ? "SENT" : "FAILED",
-            sentAt: deliverySuccess ? new Date() : null,
-            retryCount: deliverySuccess ? 0 : 1,
-          },
-        });
-      });
-
-      return { staffId: selfReferencedStaff.id, rawToken };
-    });
-  },
-
-  verifyStaffEmail: async (rawToken: string) => {
+    const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto
       .createHash("sha256")
       .update(rawToken)
       .digest("hex");
-    const now = new Date();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-    return await prisma.$transaction(async (tx) => {
-      const tokenRecord = await tx.authToken.findFirst({
-        where: {
-          tokenHash,
-          userType: "STAFF",
-          tokenType: "EMAIL_VERIFICATION",
-          usedAt: null,
-        },
-      });
-
-      if (!tokenRecord || now > tokenRecord.expiresAt) {
-        throw new Error(
-          "The email verification link is invalid or has expired.",
-        );
-      }
-
-      await tx.authToken.update({
-        where: { id: tokenRecord.id },
-        data: { usedAt: now },
-      });
-
-      const activatedStaff = await tx.staff.update({
-        where: { id: tokenRecord.userId },
-        data: { status: "ACTIVE" },
-      });
-
-      return { email: activatedStaff.email, status: activatedStaff.status };
+    await tx.authToken.create({
+      data: {
+        userId: selfReferencedStaff.id,
+        userType: "STAFF",
+        tokenType: "EMAIL_VERIFICATION",
+        tokenHash,
+        expiresAt,
+      },
     });
-  },
+
+    const loggedEmail = await tx.emailLog.create({
+      data: {
+        recipientId: selfReferencedStaff.id,
+        recipientEmail: selfReferencedStaff.email,
+        emailType: "EMAIL_VERIFICATION",
+        status: "PENDING",
+      },
+    });
+
+    return {
+      staffId: selfReferencedStaff.id,
+      email: selfReferencedStaff.email,
+      fullName: selfReferencedStaff.fullName,
+      emailLogId: loggedEmail.id,
+      rawToken,
+    };
+  });
+
+  const deliverySuccess = await sendVerificationEmail(
+    txResult.email,
+    txResult.fullName,
+    txResult.rawToken,
+    "STAFF",
+  );
+
+  await prisma.emailLog.update({
+    where: { id: txResult.emailLogId },
+    data: {
+      status: deliverySuccess ? "SENT" : "FAILED",
+      sentAt: deliverySuccess ? new Date() : null,
+      retryCount: deliverySuccess ? 0 : 1,
+    },
+  });
+
+  if (!deliverySuccess) {
+    throw new Error(
+      "Failed to deliver verification email. Please contact system support.",
+    );
+  }
+
+  return { staffId: txResult.staffId };
+};
+export const verifyStaffEmail = async (rawToken: string) => {
+  const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+  const now = new Date();
+
+  console.log("[verifyStaffEmail] called with rawToken:", rawToken);
+  console.log("[verifyStaffEmail] computed tokenHash:", tokenHash);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const tokenRecord = await tx.authToken.findFirst({
+      where: {
+        tokenHash,
+        userType: "STAFF",
+        tokenType: "EMAIL_VERIFICATION",
+        usedAt: null,
+      },
+    });
+
+    console.log("[verifyStaffEmail] tokenRecord found:", tokenRecord);
+
+    if (!tokenRecord || now > tokenRecord.expiresAt) {
+      console.log(
+        "[verifyStaffEmail] REJECTED — no valid unused token matched this hash",
+      );
+      throw new Error("The email verification link is invalid or has expired.");
+    }
+
+    await tx.authToken.update({
+      where: { id: tokenRecord.id },
+      data: { usedAt: now },
+    });
+
+    const activatedStaff = await tx.staff.update({
+      where: { id: tokenRecord.userId },
+      data: { status: "PENDING_APPROVAL" },
+    });
+
+    console.log("[verifyStaffEmail] staff row updated:", {
+      id: activatedStaff.id,
+      email: activatedStaff.email,
+      status: activatedStaff.status,
+    });
+
+    return { email: activatedStaff.email, status: activatedStaff.status };
+  });
+
+  const recheck = await prisma.staff.findUnique({
+    where: { email: result.email },
+  });
+  console.log(
+    "[verifyStaffEmail] re-read from DB after commit:",
+    recheck?.status,
+  );
+
+  return result;
+};
+
+export const resendStaffVerification = async (email: string) => {
+  const staff = await prisma.staff.findUnique({ where: { email } });
+
+  if (!staff || staff.status !== "PENDING_VERIFICATION") {
+    return { email, dummyMode: true };
+  }
+
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+  const txResult = await prisma.$transaction(async (tx) => {
+    await tx.authToken.deleteMany({
+      where: {
+        userId: staff.id,
+        tokenType: "EMAIL_VERIFICATION",
+      },
+    });
+
+    const authToken = await tx.authToken.create({
+      data: {
+        userId: staff.id,
+        userType: "STAFF",
+        tokenType: "EMAIL_VERIFICATION",
+        tokenHash,
+        expiresAt,
+      },
+    });
+
+    const loggedEmail = await tx.emailLog.create({
+      data: {
+        recipientId: staff.id,
+        recipientEmail: staff.email,
+        emailType: "EMAIL_VERIFICATION",
+        status: "PENDING",
+      },
+    });
+
+    return {
+      emailLogId: loggedEmail.id,
+      rawToken,
+      email: staff.email,
+      fullName: staff.fullName,
+    };
+  });
+
+  const deliverySuccess = await sendVerificationEmail(
+    txResult.email,
+    txResult.fullName,
+    txResult.rawToken,
+    "STAFF",
+  );
+
+  await prisma.emailLog.update({
+    where: { id: txResult.emailLogId },
+    data: {
+      status: deliverySuccess ? "SENT" : "FAILED",
+      sentAt: deliverySuccess ? new Date() : null,
+    },
+  });
+
+  return { email: txResult.email };
 };

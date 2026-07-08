@@ -1,5 +1,5 @@
-import { Request, Response } from "express";
-import { AuthService } from "./auth.service";
+import { Request, Response, NextFunction } from "express";
+import { Login } from "./auth.service";
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
@@ -17,7 +17,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
   }
 
   try {
-    const { accessToken, refreshToken, partyType } = await AuthService.login(
+    const { accessToken, refreshToken, partyType } = await Login(
       email,
       password,
     );
@@ -48,4 +48,20 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
       .status(500)
       .json({ error: "An unexpected error occurred during logout" });
   }
+};
+
+export const me = async (req: Request, res: Response): Promise<void> => {
+  if (!req.user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  res.status(200).json({
+    userId: req.user.userId,
+    email: req.user.email,
+    partyType: req.user.partyType,
+    isSAdmin: req.user.isSAdmin ?? false,
+    isManager: req.user.isManager ?? false,
+    isPSsupport: req.user.isPSsupport ?? false,
+  });
 };

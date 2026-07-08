@@ -1,5 +1,9 @@
 import { Router } from "express";
-import { register, verifyEmail, resendVerification } from "./staff.controller";
+import {
+  register,
+  resendVerification,
+  verifyEmail,
+} from "./customer.controller";
 
 const router = Router();
 
@@ -7,4 +11,4 @@ router.post("/register", register);
 router.post("/verify-email", verifyEmail);
 router.post("/resend-verification", resendVerification);
 
-export const StaffRoutes = router;
+export const CustomerRoute = router;

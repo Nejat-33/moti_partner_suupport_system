@@ -15,7 +15,7 @@ export const RequireAuth = (
     return;
   }
 
-  const token = authHeader.split("")[1];
+  const token = authHeader.split(" ")[1];
 
   try {
     const decodedPayload = JwtUtils.verifyAccessToken(token);

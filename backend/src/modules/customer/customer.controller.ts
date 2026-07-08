@@ -1,19 +1,35 @@
 import { Request, Response } from "express";
 import {
-  Register,
-  verifyStaffEmail,
-  resendStaffVerification,
-} from "./staff.service";
+  RegisterCustomer,
+  verifyCustomerEmail,
+  resendCustomerVerification,
+} from "./customer.service";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const register = async (req: Request, res: Response): Promise<void> => {
-  const { fullName, email, password, gender } = req.body;
+  const {
+    fullName,
+    email,
+    password,
+    gender,
+    phoneNumber,
+    position,
+    organizationId,
+  } = req.body;
 
-  if (!fullName || !email || !password || !gender) {
-    res
-      .status(400)
-      .json({ error: "Missing mandatory registration profile fields." });
+  if (
+    !fullName ||
+    !email ||
+    !password ||
+    !gender ||
+    !phoneNumber ||
+    !position ||
+    !organizationId
+  ) {
+    res.status(400).json({
+      error: "All fields are required.",
+    });
     return;
   }
 
@@ -35,35 +51,31 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
+  if (gender !== "MALE" && gender !== "FEMALE") {
+    res.status(400).json({ error: "Gender must be either MALE or FEMALE." });
+    return;
+  }
+
   try {
-    const result = await Register({
+    const result = await RegisterCustomer({
       fullName: fullName.trim(),
       email: email.trim().toLowerCase(),
       passwordPlain: password,
       gender,
+      phoneNumber: phoneNumber.trim(),
+      position: position.trim(),
+      organizationId,
     });
 
     res.status(201).json({
       message:
-        "Staff registration submitted successfully. Please check your inbox to verify your account.",
-      staffId: result.staffId,
+        "Registration successful! Please look inside your inbox to confirm your email.",
+      customerId: result.customerId,
     });
   } catch (error: any) {
-    console.error("CRITICAL REGISTRATION FAILURE:", error);
-
-    if (
-      error instanceof Error &&
-      (error.message.includes("exists") ||
-        error.message.includes("corporate email"))
-    ) {
-      res.status(400).json({ error: error.message });
-      return;
-    }
-
-    res.status(500).json({
-      error:
-        "An unexpected error occurred while processing your registration. Please try again later.",
-    });
+    res
+      .status(400)
+      .json({ error: error.message || "Registration processing failed." });
   }
 };
 
@@ -75,22 +87,21 @@ export const verifyEmail = async (
 
   if (!token || typeof token !== "string" || token.length !== 64) {
     res.status(400).json({
-      error:
-        "A valid 64-character hexadecimal cryptographic token is required.",
+      error: "A valid 64-character hexadecimal verification token is required.",
     });
     return;
   }
 
   try {
-    const confirmation = await verifyStaffEmail(token);
+    const confirmation = await verifyCustomerEmail(token);
     res.status(200).json({
       message:
-        "Email successfully verified. Your internal account is now active.",
+        "Email successfully verified. Your account is Waiting for Admin Approval",
       details: confirmation,
     });
   } catch (error: any) {
     res.status(400).json({
-      error: error.message || "Activation routine encountered a failure.",
+      error: error.message || "Verification route encountered an error.",
     });
   }
 };
@@ -109,13 +120,15 @@ export const resendVerification = async (
   }
 
   try {
-    await resendStaffVerification(email.trim().toLowerCase());
+    await resendCustomerVerification(email.trim().toLowerCase());
 
     res.status(200).json({
       message:
-        "If an eligible matching account was found, a fresh verification link has been delivered.",
+        "If a matching account was found, a fresh verification link has been delivered.",
     });
   } catch (error: any) {
-    res.status(400).json({ error: error.message || "Resend failed." });
+    res
+      .status(400)
+      .json({ error: error.message || "Resend processing failed." });
   }
 };

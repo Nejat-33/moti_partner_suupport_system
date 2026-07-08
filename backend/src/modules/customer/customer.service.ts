@@ -1,16 +1,16 @@
 import { prisma } from "../../config/database";
 import { BcryptUtils } from "../../utils/bcrypt";
-import crypto from "crypto";
 import { sendVerificationEmail } from "../../utils/email";
+import crypto from "crypto";
 
-export const register = async (data: {
+export const RegisterCustomer = async (data: {
   fullName: string;
   email: string;
-  phoneNumber: string;
-  password: string;
-  position: string;
+  passwordPlain: string;
   gender: "MALE" | "FEMALE";
+  position: string;
   organizationId: string;
+  phoneNumber: string;
 }) => {
   const emailExistsInStaff = await prisma.staff.findUnique({
     where: { email: data.email },
@@ -23,29 +23,27 @@ export const register = async (data: {
     throw new Error("An account with this email address already exists.");
   }
 
-  const passwordHash = await BcryptUtils.hash(data.password);
+  const passwordHash = await BcryptUtils.hash(data.passwordPlain);
 
-  return await prisma.$transaction(async (tx) => {
+  const txResult = await prisma.$transaction(async (tx) => {
     const newCustomer = await tx.customer.create({
       data: {
         fullName: data.fullName,
         email: data.email,
         phoneNumber: data.phoneNumber,
-        passwordHash,
         position: data.position,
+        passwordHash,
         gender: data.gender,
-        organizationId: data.organizationId,
         status: "PENDING_VERIFICATION",
+
         createdByType: "CUSTOMER",
         updatedByType: "CUSTOMER",
-      },
-    });
 
-    const selfReferencedCustomer = await tx.customer.update({
-      where: { id: newCustomer.id },
-      data: {
-        createdById: newCustomer.id,
-        updatedById: newCustomer.id,
+        organization: {
+          connect: {
+            id: data.organizationId,
+          },
+        },
       },
     });
 
@@ -68,36 +66,48 @@ export const register = async (data: {
 
     const loggedEmail = await tx.emailLog.create({
       data: {
-        recipientId: selfReferencedCustomer.id,
-        recipientEmail: selfReferencedCustomer.email,
+        recipientId: newCustomer.id,
+        recipientEmail: newCustomer.email,
         emailType: "EMAIL_VERIFICATION",
         status: "PENDING",
       },
     });
 
-    setImmediate(async () => {
-      const deliverySuccess = await sendVerificationEmail(
-        selfReferencedCustomer.email,
-        selfReferencedCustomer.fullName,
-        rawToken,
-        "CUSTOMER",
-      );
-
-      await prisma.emailLog.update({
-        where: { id: loggedEmail.id },
-        data: {
-          status: deliverySuccess ? "SENT" : "FAILED",
-          sentAt: deliverySuccess ? new Date() : null,
-          retryCount: deliverySuccess ? 0 : 1,
-        },
-      });
-    });
-
-    return { customerId: selfReferencedCustomer.id, rawToken };
+    return {
+      customerId: newCustomer.id,
+      email: newCustomer.email,
+      fullName: newCustomer.fullName,
+      emailLogId: loggedEmail.id,
+      rawToken,
+    };
   });
+
+  const deliverySuccess = await sendVerificationEmail(
+    txResult.email,
+    txResult.fullName,
+    txResult.rawToken,
+    "CUSTOMER",
+  );
+
+  await prisma.emailLog.update({
+    where: { id: txResult.emailLogId },
+    data: {
+      status: deliverySuccess ? "SENT" : "FAILED",
+      sentAt: deliverySuccess ? new Date() : null,
+      retryCount: deliverySuccess ? 0 : 1,
+    },
+  });
+
+  if (!deliverySuccess) {
+    throw new Error(
+      "Failed to deliver verification email. Please contact support.",
+    );
+  }
+
+  return { customerId: txResult.customerId };
 };
 
-export const verifyEmail = async (rawToken: string) => {
+export const verifyCustomerEmail = async (rawToken: string) => {
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
   const now = new Date();
 
@@ -105,6 +115,7 @@ export const verifyEmail = async (rawToken: string) => {
     const tokenRecord = await tx.authToken.findFirst({
       where: {
         tokenHash,
+        userType: "CUSTOMER",
         tokenType: "EMAIL_VERIFICATION",
         usedAt: null,
       },
@@ -119,26 +130,75 @@ export const verifyEmail = async (rawToken: string) => {
       data: { usedAt: now },
     });
 
-    const updatedCustomer = await tx.customer.update({
+    const activatedCustomer = await tx.customer.update({
       where: { id: tokenRecord.userId },
-      data: {
-        status: "PENDING_APPROVAL",
-        emailVerifiedAt: now,
+      data: { status: "PENDING_APPROVAL" },
+    });
+
+    return { email: activatedCustomer.email, status: activatedCustomer.status };
+  });
+};
+
+export const resendCustomerVerification = async (email: string) => {
+  const customer = await prisma.customer.findUnique({ where: { email } });
+
+  if (!customer || customer.status !== "PENDING_VERIFICATION") {
+    return { email, dummyMode: true };
+  }
+
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+  const txResult = await prisma.$transaction(async (tx) => {
+    await tx.authToken.deleteMany({
+      where: {
+        userId: customer.id,
+        tokenType: "EMAIL_VERIFICATION",
       },
     });
 
-    await tx.notification.create({
+    const authToken = await tx.authToken.create({
       data: {
-        recipientId: "SYSTEM_ADMIN_QUEUE",
-        recipientType: "STAFF",
-        type: "NEW_CUSTOMER_REGISTRATION",
-        message: `New account from ${updatedCustomer.fullName} is awaiting administrative review.`,
+        userId: customer.id,
+        userType: "CUSTOMER",
+        tokenType: "EMAIL_VERIFICATION",
+        tokenHash,
+        expiresAt,
+      },
+    });
+
+    const loggedEmail = await tx.emailLog.create({
+      data: {
+        recipientId: customer.id,
+        recipientEmail: customer.email,
+        emailType: "EMAIL_VERIFICATION",
+        status: "PENDING",
       },
     });
 
     return {
-      email: updatedCustomer.email,
-      currentStatus: updatedCustomer.status,
+      emailLogId: loggedEmail.id,
+      rawToken,
+      email: customer.email,
+      fullName: customer.fullName,
     };
   });
+
+  const deliverySuccess = await sendVerificationEmail(
+    txResult.email,
+    txResult.fullName,
+    txResult.rawToken,
+    "CUSTOMER",
+  );
+
+  await prisma.emailLog.update({
+    where: { id: txResult.emailLogId },
+    data: {
+      status: deliverySuccess ? "SENT" : "FAILED",
+      sentAt: deliverySuccess ? new Date() : null,
+    },
+  });
+
+  return { email: txResult.email };
 };
