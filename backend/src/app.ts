@@ -3,7 +3,8 @@ import cors from "cors";
 import { AuthRoutes } from "../src/modules/auth/auth.route";
 import { StaffRoutes } from "./modules/staff/staff.route";
 import { CustomerRoute } from "./modules/customer/customer.route";
-import router from "./modules/organization/organization.route";
+import { OrganizationRouter } from "./modules/organization/organization.route";
+import { ProductCategoryRoute } from "./modules/product_category/product.Category.route";
 
 const app: Application = express();
 
@@ -14,7 +15,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/auth", AuthRoutes);
 app.use("/api/staff", StaffRoutes);
 app.use("/api/customers", CustomerRoute);
-app.use("/api/", router);
+app.use("/api/productcategory", ProductCategoryRoute);
+app.use("/api/organizations", OrganizationRouter);
 
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error(" Application Error Root:", err);

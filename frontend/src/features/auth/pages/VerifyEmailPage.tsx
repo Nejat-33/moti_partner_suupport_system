@@ -10,7 +10,7 @@ export default function VerifyEmailSuccess() {
     const [status, setStatus] = useState<VerifyStatus>("loading");
     const [message, setMessage] = useState("Verifying your email address...");
 
-    useEffect(() => {
+    useEffect( () =>  {
         const token = searchParams.get("token");
         const type = searchParams.get("type");
 
@@ -110,9 +110,7 @@ export default function VerifyEmailSuccess() {
                     Proceed to Sign In
                 </button>
 
-                <div className="mt-6 text-xs text-slate-400">
-                    Need help? <a href="#support" className="text-[#5182c4] hover:underline font-semibold transition-colors">Contact Support</a>
-                </div>
+                
             </div>
         </div>
     );

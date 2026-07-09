@@ -1,7 +1,6 @@
 import { prisma } from "../../config/database";
 import { BcryptUtils } from "../../utils/bcrypt";
 import { JwtUtils, AuthPartyType } from "../../utils/jwt";
-import { sendVerificationEmail } from "../../utils/email";
 import crypto from "crypto";
 
 export const Login = async (email: string, passwordPlain: string) => {
@@ -10,7 +9,15 @@ export const Login = async (email: string, passwordPlain: string) => {
   let user: any = null;
   let partyType: AuthPartyType = "STAFF";
 
-  const staffUser = await prisma.staff.findUnique({ where: { email } });
+  const staffUser = await prisma.staff.findUnique({
+    where: { email },
+    include: {
+      managedDepartment: { select: { id: true } },
+      managedDivision: { select: { id: true } },
+      sections: { select: { id: true }, take: 1 },
+    },
+  });
+
   if (staffUser) {
     user = staffUser;
     partyType = "STAFF";
@@ -90,13 +97,19 @@ export const Login = async (email: string, passwordPlain: string) => {
   }
 
   const isStaff = partyType === "STAFF";
+
   const accessToken = JwtUtils.generateAccessToken({
     userId: user.id,
     email: user.email,
     partyType,
     isSAdmin: isStaff ? user.isSAdmin : false,
     isManager: isStaff ? user.isManager : false,
+    managerType: isStaff ? user.managerType : null,
     isPSsupport: isStaff ? user.isPSsupport : false,
+
+    departmentId: isStaff ? user.managedDepartment?.id || null : null,
+    divisionId: isStaff ? user.managedDivision?.id || null : null,
+    sectionId: isStaff ? user.sections?.[0]?.id || null : null,
   });
 
   const refreshToken = JwtUtils.generateRefreshToken(user.id, partyType);

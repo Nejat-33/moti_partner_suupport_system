@@ -3,12 +3,14 @@ import { ENV } from "../config/env";
 
 export type AuthPartyType = "CUSTOMER" | "STAFF";
 
+export type ManagerDivisionType = "DIVISION" | "DEPARTMENT" | "SECTION";
 export interface JwtPayload {
   userId: string;
   email: string;
   partyType: AuthPartyType;
   isSAdmin?: boolean;
   isManager?: boolean;
+  managerType?: ManagerDivisionType;
   isPSsupport?: boolean;
 }
 
