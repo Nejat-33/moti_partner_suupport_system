@@ -21,20 +21,19 @@ export const approveUser = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { userId, userType } = req.body; // Expects userType to be "STAFF" or "CUSTOMER"
-
+    const { userId, userType } = req.body;
+    const adminId = (req as any).user?.userId;
     if (!userId || !userType) {
-      res
-        .status(400)
-        .json({
-          message: "Both userId and userType are required for approval.",
-        });
+      res.status(400).json({
+        message: "Both userId and userType are required for approval.",
+      });
       return;
     }
 
     const approvedUser = await ApprovalService.approveUserAccount(
       userId,
       userType,
+      adminId,
     );
 
     res.status(200).json({
@@ -53,6 +52,7 @@ export const rejectUser = async (
 ): Promise<void> => {
   try {
     const { userId, userType } = req.body;
+
     if (!userId || !userType) {
       res
         .status(400)
@@ -65,7 +65,7 @@ export const rejectUser = async (
       userType,
     );
     res.status(200).json({
-      message: `${userType} application registration has been rejected and deleted.`,
+      message: `${userType} application registration has been rejected.`,
       data: removedUser,
     });
   } catch (error: any) {

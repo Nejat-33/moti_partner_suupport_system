@@ -3,7 +3,7 @@ import { ENV } from "../config/env";
 
 export type AuthPartyType = "CUSTOMER" | "STAFF";
 
-export type ManagerDivisionType = "DIVISION" | "DEPARTMENT" | "SECTION";
+export type ManagerDivisionType = "DIVISION" | "DEPARTMENT" | "SECTION" | null;
 export interface JwtPayload {
   userId: string;
   email: string;
@@ -12,6 +12,9 @@ export interface JwtPayload {
   isManager?: boolean;
   managerType?: ManagerDivisionType;
   isPSsupport?: boolean;
+  departmentId?: string | null;
+  divisionId?: string | null;
+  sectionId?: string | null;
 }
 
 export const JwtUtils = {

@@ -1,17 +1,26 @@
 import { Request, Response } from "express";
-import * as DeptService from "./department.service";
+import * as DivisionService from "./division.service";
 
 export const create = async (req: Request, res: Response): Promise<void> => {
   try {
     const adminId = req.user!.userId;
-    const department = await DeptService.createDepartment({
-      name: req.body.name,
+    const { name, departmentId } = req.body;
+
+    if (!departmentId) {
+      res
+        .status(400)
+        .json({ message: "Parent departmentId is required parameters." });
+      return;
+    }
+
+    const division = await DivisionService.createDivision({
+      name,
+      departmentId,
       adminId,
     });
-
     res.status(201).json({
-      message: "Department structure initialized successfully.",
-      data: department,
+      message: "Division context initialized successfully.",
+      data: division,
     });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ message: error.message });
@@ -20,19 +29,19 @@ export const create = async (req: Request, res: Response): Promise<void> => {
 
 export const getAll = async (req: Request, res: Response): Promise<void> => {
   try {
-    const records = await DeptService.getAllDepartments();
+    const records = await DivisionService.getAllDivisions();
     res.status(200).json({ data: records });
   } catch (error: any) {
-    res.status(500).json({
-      message: "Failed to assemble structural database tracking tables.",
-    });
+    res
+      .status(500)
+      .json({ message: "Failed to assemble division listings arrays." });
   }
 };
 
 export const getSingle = async (req: Request, res: Response): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const record = await DeptService.getDepartmentById(id);
+    const record = await DivisionService.getDivisionById(id);
     res.status(200).json({ data: record });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ message: error.message });
@@ -43,13 +52,13 @@ export const update = async (req: Request, res: Response): Promise<void> => {
   try {
     const id = req.params.id as string;
     const adminId = req.user!.userId;
-    const updatedRecord = await DeptService.updateDepartment(id, {
+    const updatedRecord = await DivisionService.updateDivision(id, {
       name: req.body.name,
       adminId,
     });
 
     res.status(200).json({
-      message: "Department configurations modified successfully.",
+      message: "Division changes processed smoothly.",
       data: updatedRecord,
     });
   } catch (error: any) {
@@ -64,11 +73,10 @@ export const deactivate = async (
   try {
     const id = req.params.id as string;
     const adminId = req.user!.userId;
-    await DeptService.setDepartmentStatus(id, false, adminId);
-
+    await DivisionService.setDivisionStatus(id, false, adminId);
     res
       .status(200)
-      .json({ message: "Department structural status shifted to inactive." });
+      .json({ message: "Division visibility flags set to inactive state." });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ message: error.message });
   }
@@ -81,11 +89,10 @@ export const reactivate = async (
   try {
     const id = req.params.id as string;
     const adminId = req.user!.userId;
-    await DeptService.setDepartmentStatus(id, true, adminId);
-
+    await DivisionService.setDivisionStatus(id, true, adminId);
     res
       .status(200)
-      .json({ message: "Department operational access restored cleanly." });
+      .json({ message: "Division workspace activation pipeline restored." });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ message: error.message });
   }

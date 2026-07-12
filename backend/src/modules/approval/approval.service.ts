@@ -29,7 +29,7 @@ export const getPendingUsers = async () => {
       gender: true,
       createdAt: true,
       organization: {
-        select: { name: true, emailDomain: true },
+        select: { name: true },
       },
     },
   });
@@ -43,6 +43,7 @@ export const getPendingUsers = async () => {
 export const approveUserAccount = async (
   userId: string,
   targetType: "STAFF" | "CUSTOMER",
+  adminId: string,
 ) => {
   if (targetType === "STAFF") {
     const staff = await prisma.staff.findUnique({ where: { id: userId } });
@@ -50,9 +51,12 @@ export const approveUserAccount = async (
     if (staff.status === "ACTIVE")
       throw new BadRequestError("Account is already active.");
 
+    if (staff.status === "PENDING_VERIFICATION")
+      throw new BadRequestError("Account is Not Verified");
+
     return prisma.staff.update({
       where: { id: userId },
-      data: { status: "ACTIVE" },
+      data: { status: "ACTIVE", approvedBy: { connect: { id: adminId } } },
       select: { id: true, fullName: true, email: true, status: true },
     });
   }
@@ -64,10 +68,12 @@ export const approveUserAccount = async (
     if (!customer) throw new NotFoundError("Customer account not found.");
     if (customer.status === "ACTIVE")
       throw new BadRequestError("Account is already active.");
+    if (customer.status === "PENDING_VERIFICATION")
+      throw new BadRequestError("Account is Not Verified.");
 
     return prisma.customer.update({
       where: { id: userId },
-      data: { status: "ACTIVE" },
+      data: { status: "ACTIVE", approvedBy: { connect: { id: adminId } } },
       select: { id: true, fullName: true, email: true, status: true },
     });
   }

@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+/* import { Request, Response } from "express";
 import * as OrgService from "./organization.service";
 
 export const create = async (req: Request, res: Response): Promise<void> => {
@@ -96,3 +96,4 @@ export const reactivate = async (
     });
   }
 };
+ */

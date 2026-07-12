@@ -194,15 +194,14 @@ model Staff {
   updatedProductSubCategory        ProductSubcategory[]    @relation("ProductSubCategoryUpdatedBy")
   closedCaseReport               CaseReport[]      @relation("CaseReportClosedBy")
   updatedCaseReport              CaseReport[]      @relation("CaseReportUpdatedBy")
-    uploadedAttachments       Attachment[]             @relation("AttachmentUploadedByStaff") // FIX: staff can now be an uploader too, see Attachment model
-
+    uploadedAttachments       Attachment[]             @relation("AttachmentUploadedByStaff") 
+    approvedById       String?
+  approvedBy         Staff?     @relation("StaffApprover", fields: [approvedById], references: [id])
+  approvedStaff      Staff[]    @relation("StaffApprover")
+  approvedCustomers  Customer[] @relation("CustomerApprover")
   
   @@map("staffs")
 }
-
-
-
-
 
 
 model Customer {
@@ -228,6 +227,8 @@ model Customer {
 
   uploadedAttachments Attachment[] @relation("AttachmentUploadedByCustomer")
   cases               CaseReport[]
+  approvedById       String?
+  approvedBy         Staff?     @relation("CustomerApprover", fields: [approvedById], references: [id])
 
 
   @@map("customers")

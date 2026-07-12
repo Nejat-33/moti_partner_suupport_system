@@ -1,4 +1,4 @@
-import { prisma } from "../../config/database";
+/* import { prisma } from "../../config/database";
 import { BadRequestError, ConflictError, NotFoundError } from "../../utils/error";
 interface CreateOrgInput {
   name: string;
@@ -125,3 +125,4 @@ export const reactivateOrganization = async (id: string) => {
     data: { isActive: true },
   });
 };
+ */

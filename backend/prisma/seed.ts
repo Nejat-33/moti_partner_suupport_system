@@ -13,21 +13,18 @@ async function main() {
   const organizations = [
     {
       name: "Commercial Bank of Ethiopia",
-      emailDomain: "cbe.com",
     },
     {
       name: "Dashen Bank",
-      emailDomain: "dashenbank.com",
     },
     {
       name: "Awash Bank",
-      emailDomain: "awashbank.com",
     },
   ];
 
   for (const organization of organizations) {
     await prisma.organization.upsert({
-      where: { emailDomain: organization.emailDomain },
+      where: { name: organization.name },
       update: { name: organization.name },
       create: organization,
     });

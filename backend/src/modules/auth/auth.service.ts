@@ -8,19 +8,30 @@ export const Login = async (email: string, passwordPlain: string) => {
 
   let user: any = null;
   let partyType: AuthPartyType = "STAFF";
+  let calculatedManagerType: "DEPARTMENT" | "DIVISION" | "SECTION" | null =
+    null;
 
   const staffUser = await prisma.staff.findUnique({
     where: { email },
     include: {
       managedDepartment: { select: { id: true } },
       managedDivision: { select: { id: true } },
-      sections: { select: { id: true }, take: 1 },
+      managedSection: { select: { id: true } },
+      section: { select: { id: true } },
     },
   });
 
   if (staffUser) {
     user = staffUser;
     partyType = "STAFF";
+
+    if (staffUser.managedDepartment) {
+      calculatedManagerType = "DEPARTMENT";
+    } else if (staffUser.managedDivision) {
+      calculatedManagerType = "DIVISION";
+    } else if (staffUser.managedSection) {
+      calculatedManagerType = "SECTION";
+    }
   } else {
     const customerUser = await prisma.customer.findUnique({ where: { email } });
     if (customerUser) {
@@ -104,12 +115,11 @@ export const Login = async (email: string, passwordPlain: string) => {
     partyType,
     isSAdmin: isStaff ? user.isSAdmin : false,
     isManager: isStaff ? user.isManager : false,
-    managerType: isStaff ? user.managerType : null,
+    managerType: isStaff ? calculatedManagerType : null,
     isPSsupport: isStaff ? user.isPSsupport : false,
-
     departmentId: isStaff ? user.managedDepartment?.id || null : null,
     divisionId: isStaff ? user.managedDivision?.id || null : null,
-    sectionId: isStaff ? user.sections?.[0]?.id || null : null,
+    sectionId: isStaff ? user.section?.id || null : null,
   });
 
   const refreshToken = JwtUtils.generateRefreshToken(user.id, partyType);
