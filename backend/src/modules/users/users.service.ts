@@ -15,105 +15,43 @@ interface UpdateProfileInput {
 export const updateProfileWithRBAC = async (input: UpdateProfileInput) => {
   const { targetUserId, userType, requestedById, updateData } = input;
 
-  const sensitiveFields = ["isSAdmin", "isManager", "isPSsupport", "password"];
-  sensitiveFields.forEach((field) => delete updateData[field]);
-
-  if (targetUserId === requestedById) {
-    return await executeUpdate(
-      targetUserId,
-      userType,
-      requestedById,
-      updateData,
-    );
-  }
-
   const operator = await prisma.staff.findUnique({
     where: { id: requestedById },
   });
-  if (!operator)
+  if (!operator) {
     throw new ForbiddenError("Access Denied: Requester profile not found.");
-
-  if (operator.isSAdmin) {
-    return await executeUpdate(
-      targetUserId,
-      userType,
-      requestedById,
-      updateData,
-    );
   }
 
-  if (userType === "CUSTOMER") {
+  const isSelfUpdate = targetUserId === requestedById;
+  const isSystemAdmin = operator.isSAdmin;
+
+  if (!isSelfUpdate && !isSystemAdmin) {
     throw new ForbiddenError(
-      "Access Denied: Only System Administrators can modify customer profiles.",
+      "Access Denied: You are only allowed to modify your own profile.",
     );
   }
 
-  const targetStaff = await prisma.staff.findUnique({
-    where: { id: targetUserId },
-    include: {
-      section: {
-        include: {
-          division: {
-            include: { department: true },
-          },
-        },
-      },
-    },
-  });
-
-  if (!targetStaff) throw new NotFoundError("Target staff profile not found.");
-
-  if (!targetStaff.section) {
-    throw new ForbiddenError(
-      "Access Denied: Target user falls outside your management scope.",
-    );
-  }
-
-  const targetSectionId = targetStaff.section.id;
-  const targetDivisionId = targetStaff.section.divisionId;
-  const targetDepartmentId = targetStaff.section.division.departmentId;
-
-  if (operator.isManager) {
-    const managesTargetSection =
-      (await prisma.section.count({
-        where: { id: targetSectionId, managerId: requestedById },
-      })) > 0;
-    if (managesTargetSection)
-      return await executeUpdate(
-        targetUserId,
-        "STAFF",
-        requestedById,
-        updateData,
-      );
-
-    const managesTargetDivision =
-      (await prisma.division.count({
-        where: { id: targetDivisionId, managerId: requestedById },
-      })) > 0;
-    if (managesTargetDivision)
-      return await executeUpdate(
-        targetUserId,
-        "STAFF",
-        requestedById,
-        updateData,
-      );
-
-    const managesTargetDepartment =
-      (await prisma.department.count({
-        where: { id: targetDepartmentId, managerId: requestedById },
-      })) > 0;
-    if (managesTargetDepartment)
-      return await executeUpdate(
-        targetUserId,
-        "STAFF",
-        requestedById,
-        updateData,
-      );
-  }
-
-  throw new ForbiddenError(
-    "Access Denied: You do not possess structural management clearance over this profile.",
+  const allowedFields = ["password"];
+  const incomingFields = Object.keys(updateData);
+  const containsIllegalFields = incomingFields.some(
+    (field) => !allowedFields.includes(field),
   );
+
+  if (containsIllegalFields) {
+    throw new BadRequestError(
+      "Validation Failure, Only password modification is permitted.",
+    );
+  }
+
+  if (!updateData.password) {
+    throw new BadRequestError(
+      "Validation Failure: Missing required 'password'.",
+    );
+  }
+
+  return await executeUpdate(targetUserId, userType, requestedById, {
+    password: updateData.password,
+  });
 };
 
 const executeUpdate = async (
@@ -122,14 +60,23 @@ const executeUpdate = async (
   updatedById: string,
   data: any,
 ) => {
-  const auditData = {
-    ...data,
-    updatedById: updatedById,
+  const auditData: any = {
+    password: data.password,
   };
 
   if (type === "STAFF") {
-    return await prisma.staff.update({ where: { id }, data: auditData });
+    auditData.updatedBy = { connect: { id: updatedById } };
+
+    return await prisma.staff.update({
+      where: { id },
+      data: auditData,
+    });
   } else {
-    return await prisma.customer.update({ where: { id }, data: auditData });
+    auditData.updatedById = updatedById;
+
+    return await prisma.customer.update({
+      where: { id },
+      data: auditData,
+    });
   }
 };

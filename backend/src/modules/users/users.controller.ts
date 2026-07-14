@@ -16,6 +16,14 @@ export const updateProfile = async (
       return;
     }
 
+    if (userType !== "STAFF" && userType !== "CUSTOMER") {
+      res.status(400).json({
+        message:
+          "Invalid userType parameter provided. Must evaluate to 'STAFF' or 'CUSTOMER'.",
+      });
+      return;
+    }
+
     const updatedProfile = await ProfileService.updateProfileWithRBAC({
       targetUserId,
       userType,
@@ -24,7 +32,7 @@ export const updateProfile = async (
     });
 
     res.status(200).json({
-      message: "Profile updated successfully.",
+      message: "User Profile updated successfully.",
       data: updatedProfile,
     });
   } catch (error: any) {
