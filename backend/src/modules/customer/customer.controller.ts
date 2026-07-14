@@ -4,6 +4,8 @@ import {
   verifyCustomerEmail,
   resendCustomerVerification,
 } from "./customer.service";
+import { ForbiddenError, BadRequestError } from "../../utils/error";
+import * as CustomerService from "./customer.service";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -130,5 +132,50 @@ export const resendVerification = async (
     res
       .status(400)
       .json({ error: error.message || "Resend processing failed." });
+  }
+};
+
+export const handleGetCustomerHistory = async (req: Request, res: Response) => {
+  try {
+    const actor = (req as any).user;
+    const paramCustomerId = req.params.customerId as string;
+
+    let targetCustomerId: string;
+
+    if (actor.isCustomer) {
+      targetCustomerId = actor.userId;
+    } else if (
+      actor.isSAdmin ||
+      actor.role?.includes("MANAGER") ||
+      actor.role === "PS_SUPPORT"
+    ) {
+      if (!paramCustomerId) {
+        throw new BadRequestError(
+          "A specific customerId parameter must be provided.",
+        );
+      }
+      targetCustomerId = paramCustomerId;
+    } else {
+      throw new ForbiddenError(
+        "Access Denied: You are not authorized to view this customer history dashboard.",
+      );
+    }
+
+    const result =
+      await CustomerService.getCustomerCaseHistory(targetCustomerId);
+
+    res.status(200).json({
+      customerProfile: {
+        id: result.id,
+        name: result.name,
+        email: result.email,
+        phoneNumber: result.phoneNumber,
+        memberSince: result.createdAt,
+      },
+      caseCount: result.cases.length,
+      history: result.cases,
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({ message: error.message });
   }
 };

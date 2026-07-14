@@ -1,12 +1,10 @@
 import { Router } from "express";
 import { assignRole, revokeRole } from "./roleassignment.controller";
 import { authenticateToken } from "../../middleware/auth.middleware";
-import { requireRole } from "../../middleware/rbac.middleware";
 
 const router = Router();
 
 router.use(authenticateToken);
-router.use(requireRole("SYSTEM_ADMIN"));
 
 router.patch("/assignrole", assignRole);
 router.patch("/revokerole", revokeRole);

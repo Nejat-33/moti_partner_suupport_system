@@ -168,7 +168,7 @@ model Staff {
   section          Section?    @relation("SectionMembers", fields: [sectionId], references: [id])
   isSAdmin          Boolean     @default(false)
   isManager         Boolean     @default(false)
-  isPSsupport       Boolean     @default(true)
+  isPSsupport       Boolean     @default(false)
   status            StaffStatus @default(PENDING_VERIFICATION)
   failedLoginCount  Int         @default(0)
   lockedUntil       DateTime?
@@ -294,6 +294,8 @@ model ProductSubcategory {
 
   cases            CaseReport[]
 
+  
+
   @@map("product_subcategories")
 }
 
@@ -311,12 +313,12 @@ model ServiceType {
 
 model CaseReport {
   id                   String              @id @default(uuid())
-  caseNumber           String              @unique @db.VarChar(20)
+  caseNumber           String              @unique @default(uuid())
   branchName           String              @db.VarChar(255)
   customerId           String
   customer             Customer            @relation(fields: [customerId], references: [id])
-  assignedPSsupportId      String?
-  assignedPSsupport        Staff?              @relation("AssignedPSsupport", fields: [assignedPSsupportId], references: [id])
+  assignedSupportId      String?
+  assignedSupport        Staff?              @relation("AssignedPSsupport", fields: [assignedSupportId], references: [id])
   productCategoryId    String
   productCategory      ProductCategory     @relation(fields: [productCategoryId], references: [id])
   productSubcategoryId String? 
@@ -328,7 +330,6 @@ model CaseReport {
   serviceTypeId        String
   serviceType          ServiceType         @relation(fields: [serviceTypeId], references: [id])
   resolutionSummary    String?             @db.Text
-  resolvedAt           DateTime?
   closedAt             DateTime?
   closedById           String?
   closedBy             Staff?               @relation("CaseReportClosedBy", fields: [closedById], references: [id])

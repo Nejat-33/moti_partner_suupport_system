@@ -2,6 +2,7 @@ import { prisma } from "../../config/database";
 import { BcryptUtils } from "../../utils/bcrypt";
 import { sendVerificationEmail } from "../../utils/email";
 import crypto from "crypto";
+import { NotFoundError } from "../../utils/error";
 
 export const RegisterCustomer = async (data: {
   fullName: string;
@@ -201,4 +202,39 @@ export const resendCustomerVerification = async (email: string) => {
   });
 
   return { email: txResult.email };
+};
+
+export const getCustomerCaseHistory = async (customerId: string) => {
+  const customerWithHistory = await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phoneNumber: true,
+      createdAt: true,
+      cases: {
+        orderBy: {
+          createdAt: "desc",
+        },
+        include: {
+          serviceType: {
+            select: { name: true },
+          },
+          productCategory: {
+            select: { name: true },
+          },
+          assignedSupport: {
+            select: { fullName: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!customerWithHistory) {
+    throw new NotFoundError("Customer profile record not found.");
+  }
+
+  return customerWithHistory;
 };

@@ -9,7 +9,7 @@ router.use(authenticateToken);
 router.use(requireRole("SYSTEM_ADMIN"));
 
 router.post("/create", DeptController.create);
-router.put("/:id", DeptController.update);
+router.patch("/:id", DeptController.update);
 router.patch("/:id/deactivate", DeptController.deactivate);
 router.patch("/:id/reactivate", DeptController.reactivate);
 

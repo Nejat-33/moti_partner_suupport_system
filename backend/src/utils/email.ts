@@ -1,6 +1,14 @@
 import nodemailer from "nodemailer";
 import { ENV } from "../config/env";
 
+interface StatusEmailInput {
+  customerEmail: string;
+  customerName: string;
+  caseNumber: string;
+  subjectLine: string;
+  newStatus: string;
+}
+
 const getTransporter = () => {
   return nodemailer.createTransport({
     host: ENV.SMTP_HOST,
@@ -78,5 +86,47 @@ export const sendVerificationEmail = async (
   } catch (error) {
     console.error("Nodemailer dispatch failure caught:", error);
     return false;
+  }
+};
+
+export const sendStatusUpdateEmail = async (input: StatusEmailInput) => {
+  const { customerEmail, customerName, caseNumber, subjectLine, newStatus } =
+    input;
+
+  const frontendTrackingUrl = `${process.env.FRONTEND_APP_URL || "http://localhost:3000"}/track/${caseNumber}`;
+
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+      <h2 style="color: #2c3e50;">Case Update: ${caseNumber}</h2>
+      <p>Hello ${customerName},</p>
+      <p>The progress status for your recent service ticket, <strong>"${subjectLine}"</strong>, has changed.</p>
+      
+      <div style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #3498db; margin: 20px 0; border-radius: 4px;">
+        <strong>New Status:</strong> <span style="color: #2980b9; font-weight: bold;">${newStatus}</span>
+      </div>
+
+      <p>You can follow the full lifecycle timeline, status updates, and milestones anytime using our real-time tracker:</p>
+      
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${frontendTrackingUrl}" style="background-color: #3498db; color: white; padding: 12px 25px; text-decoration: none; font-weight: bold; border-radius: 4px; display: inline-block;">Track Case Progress</a>
+      </div>
+      
+      <p style="font-size: 12px; color: #7f8c8d; margin-top: 30px;">If the button above does not load, copy and paste this address into your browser window:<br>${frontendTrackingUrl}</p>
+    </div>
+  `;
+
+  try {
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: `"Support System" <no-reply@yourcompany.com>`,
+      to: customerEmail,
+      subject: `[Update] Case #${caseNumber} Status Changed to ${newStatus}`,
+      html: htmlContent,
+    });
+  } catch (error) {
+    console.error(
+      `Critical non-blocking failure emitting transaction notification email to ${customerEmail}:`,
+      error,
+    );
   }
 };
