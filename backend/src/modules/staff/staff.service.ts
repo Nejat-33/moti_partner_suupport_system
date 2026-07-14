@@ -3,7 +3,7 @@ import { BcryptUtils } from "../../utils/bcrypt";
 import { sendVerificationEmail } from "../../utils/email";
 import crypto from "crypto";
 
-const ALLOWED_STAFF_DOMAIN = "motiengineering.com";
+// const ALLOWED_STAFF_DOMAIN = "motiengineering.com";
 
 export const Register = async (data: {
   fullName: string;
@@ -40,9 +40,6 @@ export const Register = async (data: {
         email: data.email,
         passwordHash,
         gender: data.gender,
-        isSAdmin: false,
-        isManager: false,
-        isPSsupport: true,
         status: "PENDING_VERIFICATION",
       },
     });
@@ -114,6 +111,7 @@ export const Register = async (data: {
 
   return { staffId: txResult.staffId };
 };
+
 export const verifyStaffEmail = async (rawToken: string) => {
   const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
   const now = new Date();

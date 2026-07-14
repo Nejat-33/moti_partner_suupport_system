@@ -6,7 +6,7 @@ const router = Router();
 
 router.use(authenticateToken);
 
-router.patch("/assignrole", assignRole);
+router.patch("/updaterole", assignRole);
 router.patch("/revokerole", revokeRole);
 
 export const RoleRoute = router;

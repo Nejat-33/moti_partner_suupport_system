@@ -21,28 +21,36 @@ export const approveUser = async (
   res: Response,
 ): Promise<void> => {
   try {
-    const { userId, userType } = req.body;
-    const adminId = (req as any).user?.userId;
-    if (!userId || !userType) {
+    const { staffId, role, managerType, departmentId, divisionId, sectionId } =
+      req.body;
+
+    const adminId = (req as any).user.userId;
+
+    if (!staffId || !role) {
       res.status(400).json({
-        message: "Both userId and userType are required for approval.",
+        message: "staffId and role are required.",
       });
       return;
     }
 
-    const approvedUser = await ApprovalService.approveUserAccount(
-      userId,
-      userType,
-      adminId,
-    );
+    const approvedStaff = await ApprovalService.approveUserAccount({
+      staffId,
+      role,
+      managerType,
+      departmentId,
+      divisionId,
+      sectionId,
+      approvedById: adminId,
+    });
 
     res.status(200).json({
-      message: `${userType} account has been successfully approved and activated.`,
-      data: approvedUser,
+      message: "Account approved and role assigned successfully.",
+      data: approvedStaff,
     });
   } catch (error: any) {
-    const statusCode = error.statusCode || 500;
-    res.status(statusCode).json({ message: error.message });
+    res.status(error.statusCode || 500).json({
+      message: error.message,
+    });
   }
 };
 

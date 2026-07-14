@@ -1,5 +1,9 @@
 import { prisma } from "../../config/database";
 import { BadRequestError, NotFoundError } from "../../utils/error";
+import {
+  AssignStaffRole,
+  updateStaffRole,
+} from "../roleassignment/roleassignment.service";
 
 type UserType = "STAFF" | "CUSTOMER";
 
@@ -40,45 +44,87 @@ export const getPendingUsers = async () => {
   };
 };
 
-export const approveUserAccount = async (
-  userId: string,
-  targetType: "STAFF" | "CUSTOMER",
-  adminId: string,
-) => {
-  if (targetType === "STAFF") {
-    const staff = await prisma.staff.findUnique({ where: { id: userId } });
-    if (!staff) throw new NotFoundError("Staff account not found.");
-    if (staff.status === "ACTIVE")
-      throw new BadRequestError("Account is already active.");
+interface ApproveUserInput {
+  staffId: string;
+  role: "SYSTEM_ADMIN" | "MANAGER" | "PS_SUPPORT";
+  managerType?: "DEPARTMENT" | "DIVISION" | "SECTION";
+  departmentId?: string;
+  divisionId?: string;
+  sectionId?: string;
+  approvedById: string;
+}
 
-    if (staff.status === "PENDING_VERIFICATION")
-      throw new BadRequestError("Account is Not Verified");
+export const approveUserAccount = async (input: ApproveUserInput) => {
+  const {
+    staffId,
+    role,
+    managerType,
+    departmentId,
+    divisionId,
+    sectionId,
+    approvedById,
+  } = input;
 
-    return prisma.staff.update({
-      where: { id: userId },
-      data: { status: "ACTIVE", approvedBy: { connect: { id: adminId } } },
-      select: { id: true, fullName: true, email: true, status: true },
-    });
+  const staff = await prisma.staff.findUnique({
+    where: {
+      id: staffId,
+    },
+  });
+
+  if (!staff) {
+    throw new NotFoundError("Staff account not found.");
   }
 
-  if (targetType === "CUSTOMER") {
-    const customer = await prisma.customer.findUnique({
-      where: { id: userId },
-    });
-    if (!customer) throw new NotFoundError("Customer account not found.");
-    if (customer.status === "ACTIVE")
-      throw new BadRequestError("Account is already active.");
-    if (customer.status === "PENDING_VERIFICATION")
-      throw new BadRequestError("Account is Not Verified.");
-
-    return prisma.customer.update({
-      where: { id: userId },
-      data: { status: "ACTIVE", approvedBy: { connect: { id: adminId } } },
-      select: { id: true, fullName: true, email: true, status: true },
-    });
+  if (staff.status === "ACTIVE") {
+    throw new BadRequestError("This account has already been approved.");
   }
 
-  throw new BadRequestError("Invalid user type classification supplied.");
+  if (staff.status === "PENDING_VERIFICATION") {
+    throw new BadRequestError("The staff member has not verified their email.");
+  }
+
+  if (staff.status !== "PENDING_APPROVAL") {
+    throw new BadRequestError(
+      "Only pending approval accounts can be approved.",
+    );
+  }
+
+  const updatedStaff = await AssignStaffRole({
+    staffId,
+    role,
+    managerType,
+    departmentId,
+    divisionId,
+    sectionId,
+    updatedById: approvedById,
+  });
+
+  const approvedStaff = await prisma.staff.update({
+    where: {
+      id: staffId,
+    },
+    data: {
+      status: "ACTIVE",
+
+      approvedBy: {
+        connect: {
+          id: approvedById,
+        },
+      },
+    },
+
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      status: true,
+      isManager: true,
+      isPSsupport: true,
+      isSAdmin: true,
+    },
+  });
+
+  return approvedStaff;
 };
 
 export const rejectUserAccount = async (

@@ -38,15 +38,12 @@ export const assignRole = async (
     res.status(statusCode).json({ message: error.message });
   }
 };
-
 export const revokeRole = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
   try {
-    const { staffId, roleToRemove, targetStructureId, defaultSectionId } =
-      req.body;
-
+    const { staffId, roleToRemove, targetStructureId } = req.body;
     const adminId = (req as any).user?.userId;
 
     if (!staffId || !roleToRemove) {
@@ -61,21 +58,11 @@ export const revokeRole = async (
       staffId,
       roleToRemove,
       targetStructureId,
-      defaultSectionId,
       updatedById: adminId,
     });
 
-    const isRevertedToSupport =
-      !updatedStaff.isSAdmin &&
-      !updatedStaff.isManager &&
-      updatedStaff.isPSsupport;
-
-    const customSuccessMessage = isRevertedToSupport
-      ? `Role '${roleToRemove}' removed. User has been safely downgraded to a baseline PS_SUPPORT agent.`
-      : `Role assignment '${roleToRemove}' has been successfully stripped.`;
-
     res.status(200).json({
-      message: customSuccessMessage,
+      message: `Role assignment '${roleToRemove}' has been successfully stripped.`,
       data: updatedStaff,
     });
   } catch (error: any) {

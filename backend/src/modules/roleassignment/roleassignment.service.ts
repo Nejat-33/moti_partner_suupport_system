@@ -20,6 +20,114 @@ interface AssignRoleInput {
   sectionId?: string;
   updatedById?: string;
 }
+
+export const AssignStaffRole = async (input: AssignRoleInput) => {
+  const {
+    staffId,
+    role,
+    managerType,
+    departmentId,
+    divisionId,
+    sectionId,
+    updatedById,
+  } = input;
+
+  const staff = await prisma.staff.findUnique({
+    where: { id: staffId },
+    include: { section: true },
+  });
+  if (!staff) throw new NotFoundError("Target staff record not found.");
+  if (staff.status !== "PENDING_APPROVAL")
+    throw new BadRequestError(" This Account is Not Verified");
+
+  let updateStaffData: any = {};
+  if (updatedById) updateStaffData.updatedBy = { connect: { id: updatedById } };
+
+  let isSystemAdmin = false;
+  if (updatedById) {
+    const operator = await prisma.staff.findUnique({
+      where: { id: updatedById },
+    });
+    if (operator?.isSAdmin) {
+      isSystemAdmin = true;
+    }
+  }
+
+  if (role === "MANAGER") {
+    if (!managerType) {
+      throw new BadRequestError(
+        "managerType is required when assigning a MANAGER role.",
+      );
+    }
+
+    const [managedDept, managedDiv, managedSec] = await Promise.all([
+      prisma.department.findFirst({ where: { managerId: staffId } }),
+      prisma.division.findFirst({ where: { managerId: staffId } }),
+      prisma.section.findFirst({ where: { managerId: staffId } }),
+    ]);
+
+    if (managedDept || managedDiv || managedSec) {
+      const activeRole = managedDept
+        ? `Department (${managedDept.id})`
+        : managedDiv
+          ? `Division (${managedDiv.id})`
+          : `Section (${managedSec!.id})`;
+
+      throw new BadRequestError(
+        `Hierarchy Violation: This staff member is already actively managing ${activeRole}.`,
+      );
+    }
+
+    updateStaffData.isManager = true;
+
+    if (managerType === "DIVISION") {
+      if (!divisionId) throw new BadRequestError("Division ID is required.");
+
+      const targetDivision = await prisma.division.findUnique({
+        where: { id: divisionId },
+      });
+      if (!targetDivision)
+        throw new NotFoundError("Target Division not found.");
+
+      await prisma.division.update({
+        where: { id: divisionId },
+        data: { managerId: staffId },
+      });
+    } else if (managerType === "SECTION") {
+      if (!sectionId) throw new BadRequestError("Section ID is required.");
+
+      const targetSection = await prisma.section.findUnique({
+        where: { id: sectionId },
+      });
+      if (!targetSection) throw new NotFoundError("Target Section not found.");
+
+      await prisma.section.update({
+        where: { id: sectionId },
+        data: { managerId: staffId },
+      });
+    }
+  } else if (role === "PS_SUPPORT") {
+    if (!sectionId) {
+      throw new BadRequestError(
+        "Section ID is required to assign a PS Support member.",
+      );
+    }
+
+    const targetSection = await prisma.section.findUnique({
+      where: { id: sectionId },
+    });
+    if (!targetSection) throw new NotFoundError("Target Section not found.");
+
+    updateStaffData.isPSsupport = true;
+    updateStaffData.section = { connect: { id: sectionId } };
+  }
+
+  return prisma.staff.update({
+    where: { id: staffId },
+    data: { ...updateStaffData },
+  });
+};
+
 export const updateStaffRole = async (input: AssignRoleInput) => {
   const {
     staffId,
@@ -37,13 +145,98 @@ export const updateStaffRole = async (input: AssignRoleInput) => {
   });
   if (!staff) throw new NotFoundError("Target staff record not found.");
 
+  let isSystemAdmin = false;
+  let operatorManagedDeptId: string | null = null;
+  let operatorManagedDivId: string | null = null;
+  let operatorManagedSecId: string | null = null;
+
+  if (updatedById) {
+    const operator = await prisma.staff.findUnique({
+      where: { id: updatedById },
+      include: {
+        managedDepartment: true,
+        managedDivision: true,
+        managedSection: true,
+      },
+    });
+
+    if (operator) {
+      if (operator.isSAdmin) isSystemAdmin = true;
+      if (operator.managedDepartment)
+        operatorManagedDeptId = operator.managedDepartment.id;
+      if (operator.managedDivision)
+        operatorManagedDivId = operator.managedDivision.id;
+      if (operator.managedSection)
+        operatorManagedSecId = operator.managedSection.id;
+    }
+  }
+
   let updateStaffData: any = {};
   if (updatedById) updateStaffData.updatedBy = { connect: { id: updatedById } };
 
   if (role === "MANAGER") {
+    if (!managerType) {
+      throw new BadRequestError(
+        "managerType is required when assigning a MANAGER role.",
+      );
+    }
+
+    const [managedDept, managedDiv, managedSec] = await Promise.all([
+      prisma.department.findFirst({ where: { managerId: staffId } }),
+      prisma.division.findFirst({ where: { managerId: staffId } }),
+      prisma.section.findFirst({ where: { managerId: staffId } }),
+    ]);
+
+    if (managedDept || managedDiv || managedSec) {
+      const activeRole = managedDept
+        ? `Department (${managedDept.id})`
+        : managedDiv
+          ? `Division (${managedDiv.id})`
+          : `Section (${managedSec!.id})`;
+
+      throw new BadRequestError(
+        `Hierarchy Violation: This staff member is already actively managing ${activeRole}.`,
+      );
+    }
+
     updateStaffData.isManager = true;
 
-    if (managerType === "DIVISION") {
+    if (managerType === "DEPARTMENT") {
+      if (!departmentId)
+        throw new BadRequestError("Department ID is required.");
+
+      const targetDepartment = await prisma.department.findUnique({
+        where: { id: departmentId },
+      });
+      if (!targetDepartment)
+        throw new NotFoundError("Target Department not found.");
+
+      if (updatedById && !isSystemAdmin) {
+        const isSameLevelDeptManager = operatorManagedDeptId === departmentId;
+
+        if (!isSameLevelDeptManager) {
+          throw new BadRequestError(
+            "Unauthorized: Only a System Admin or an existing Department Manager of this department can assign this role.",
+          );
+        }
+      }
+
+      const updateData: any = {
+        managerId: staffId,
+      };
+
+      if (updatedById) {
+        updateData.updatedBy = { connect: { id: updatedById } };
+      }
+
+      await prisma.department.update({
+        where: { id: departmentId },
+        data: {
+          managerId: staffId,
+          updatedBy: updateData,
+        },
+      });
+    } else if (managerType === "DIVISION") {
       if (!divisionId) throw new BadRequestError("Division ID is required.");
 
       const targetDivision = await prisma.division.findUnique({
@@ -52,17 +245,14 @@ export const updateStaffRole = async (input: AssignRoleInput) => {
       if (!targetDivision)
         throw new NotFoundError("Target Division not found.");
 
-      if (updatedById) {
-        const isDeptManager = await prisma.department.findFirst({
-          where: {
-            id: targetDivision.departmentId,
-            managerId: updatedById,
-          },
-        });
+      if (updatedById && !isSystemAdmin) {
+        const isParentDeptManager =
+          operatorManagedDeptId === targetDivision.departmentId;
+        const isSameLevelDivManager = operatorManagedDivId === divisionId;
 
-        if (!isDeptManager) {
+        if (!isParentDeptManager && !isSameLevelDivManager) {
           throw new BadRequestError(
-            "Unauthorized: Only the Department Manager can assign a Manager to this Division.",
+            "Unauthorized: Only a System Admin, the parent Department Manager, or an existing Division Manager can assign this role.",
           );
         }
       }
@@ -80,75 +270,73 @@ export const updateStaffRole = async (input: AssignRoleInput) => {
 
       await prisma.division.update({
         where: { id: divisionId },
-        data: { managerId: staffId },
+        data: {
+          managerId: staffId,
+          updatedBy: updatedById || undefined,
+        },
       });
     } else if (managerType === "SECTION") {
       if (!sectionId) throw new BadRequestError("Section ID is required.");
 
       const targetSection = await prisma.section.findUnique({
         where: { id: sectionId },
+        include: { division: true },
       });
       if (!targetSection) throw new NotFoundError("Target Section not found.");
 
-      if (updatedById) {
-        const isDivManager = await prisma.division.findFirst({
-          where: {
-            id: targetSection.divisionId,
-            managerId: updatedById,
-          },
-        });
+      if (updatedById && !isSystemAdmin) {
+        const isGrandparentDeptManager =
+          operatorManagedDeptId === targetSection.division.departmentId;
+        const isParentDivManager =
+          operatorManagedDivId === targetSection.divisionId;
+        const isSameLevelSecManager = operatorManagedSecId === sectionId;
 
-        if (!isDivManager) {
+        if (
+          !isGrandparentDeptManager &&
+          !isParentDivManager &&
+          !isSameLevelSecManager
+        ) {
           throw new BadRequestError(
-            "Unauthorized: Only the Division Manager can assign a Manager to this Section.",
-          );
-        }
-      }
-
-      const managedDivisions = await prisma.division.findMany({
-        where: { managerId: staffId },
-      });
-      if (managedDivisions.length > 0) {
-        const belongsToManagedDivision = managedDivisions.some(
-          (div) => div.id === targetSection?.divisionId,
-        );
-
-        if (!belongsToManagedDivision) {
-          throw new BadRequestError(
-            "Hierarchy Violation: A Division Manager can only be assigned to lead a Section within their own Division.",
+            "Unauthorized: Requires a System Admin, parent Department Manager, parent Division Manager, or an existing Section Manager.",
           );
         }
       }
 
       await prisma.section.update({
         where: { id: sectionId },
-        data: { managerId: staffId },
+        data: {
+          managerId: staffId,
+          updatedBy: updatedById || undefined,
+        },
       });
     }
   } else if (role === "PS_SUPPORT") {
-    if (!sectionId)
+    if (!sectionId) {
       throw new BadRequestError(
         "Section ID is required to assign a PS Support member.",
       );
+    }
 
     const targetSection = await prisma.section.findUnique({
       where: { id: sectionId },
+      include: { division: { include: { department: true } } },
     });
     if (!targetSection) throw new NotFoundError("Target Section not found.");
 
-    if (updatedById) {
-      const isDirectSectionManager = targetSection.managerId === updatedById;
+    if (updatedById && !isSystemAdmin) {
+      const isDirectSectionManager = operatorManagedSecId === targetSection.id;
+      const isParentDivisionManager =
+        operatorManagedDivId === targetSection.divisionId;
+      const isGrandparentDeptManager =
+        operatorManagedDeptId === targetSection.division.department.id;
 
-      const isParentDivisionManager = await prisma.division.findFirst({
-        where: {
-          id: targetSection.divisionId,
-          managerId: updatedById,
-        },
-      });
-
-      if (!isDirectSectionManager && !isParentDivisionManager) {
+      if (
+        !isDirectSectionManager &&
+        !isParentDivisionManager &&
+        !isGrandparentDeptManager
+      ) {
         throw new BadRequestError(
-          "Unauthorized: Only the Section Manager or parent Division Manager can add support staff to this Section.",
+          "Unauthorized: Only a System Admin, Department Manager, Division Manager, or Section Manager can add support staff to this Section.",
         );
       }
     }
@@ -164,13 +352,7 @@ export const updateStaffRole = async (input: AssignRoleInput) => {
 };
 
 export const removeStaffRolePermission = async (input: RemoveRoleInput) => {
-  const {
-    staffId,
-    roleToRemove,
-    targetStructureId,
-    defaultSectionId,
-    updatedById,
-  } = input;
+  const { staffId, roleToRemove, targetStructureId, updatedById } = input;
 
   const staff = await prisma.staff.findUnique({
     where: { id: staffId },
@@ -179,17 +361,84 @@ export const removeStaffRolePermission = async (input: RemoveRoleInput) => {
   if (!staff)
     throw new NotFoundError("Target staff member record could not be found.");
 
+  let isSystemAdmin = false;
+  let operatorManagedDeptId: string | null = null;
+  let operatorManagedDivId: string | null = null;
+  let operatorManagedSecId: string | null = null;
+
+  if (updatedById) {
+    const operator = await prisma.staff.findUnique({
+      where: { id: updatedById },
+      include: {
+        managedDepartment: true,
+        managedDivision: true,
+        managedSection: true,
+      },
+    });
+
+    if (operator) {
+      if (operator.isSAdmin) isSystemAdmin = true;
+      if (operator.managedDepartment)
+        operatorManagedDeptId = operator.managedDepartment.id;
+      if (operator.managedDivision)
+        operatorManagedDivId = operator.managedDivision.id;
+      if (operator.managedSection)
+        operatorManagedSecId = operator.managedSection.id;
+    }
+  }
+
+  let willBeManager = staff.isManager;
+  let willBeAdmin = staff.isSAdmin;
+  let willBeSupport = staff.isPSsupport;
+
   let updateStaffData: any = {};
   if (updatedById) updateStaffData.updatedBy = { connect: { id: updatedById } };
 
   switch (roleToRemove) {
     case "SYSTEM_ADMIN":
+      if (updatedById && !isSystemAdmin) {
+        throw new BadRequestError(
+          "Unauthorized: Only a System Admin can remove a SYSTEM_ADMIN role.",
+        );
+      }
       updateStaffData.isSAdmin = false;
+      willBeAdmin = false;
       break;
 
     case "PS_SUPPORT":
+      if (!staff.isPSsupport)
+        throw new BadRequestError(
+          "Target user is not currently assigned a PS_SUPPORT role.",
+        );
+      if (!staff.sectionId)
+        throw new BadRequestError("Target user has no section assigned.");
+
+      if (updatedById && !isSystemAdmin) {
+        const targetSection = await prisma.section.findUnique({
+          where: { id: staff.sectionId },
+          include: { division: true },
+        });
+
+        const isDirectSecManager = operatorManagedSecId === staff.sectionId;
+        const isParentDivManager =
+          operatorManagedDivId === targetSection?.divisionId;
+        const isGrandparentDeptManager =
+          operatorManagedDeptId === targetSection?.division.departmentId;
+
+        if (
+          !isDirectSecManager &&
+          !isParentDivManager &&
+          !isGrandparentDeptManager
+        ) {
+          throw new BadRequestError(
+            "Unauthorized: You do not have permission to remove this user's PS_SUPPORT role.",
+          );
+        }
+      }
+
       updateStaffData.isPSsupport = false;
       updateStaffData.section = { disconnect: true };
+      willBeSupport = false;
       break;
 
     case "MANAGER":
@@ -199,69 +448,83 @@ export const removeStaffRolePermission = async (input: RemoveRoleInput) => {
         );
       }
 
-      const managedDept = await prisma.department.findFirst({
-        where: { id: targetStructureId, managerId: staffId },
-      });
-      const managedDiv = await prisma.division.findFirst({
-        where: { id: targetStructureId, managerId: staffId },
-      });
-      const managedSec = await prisma.section.findFirst({
-        where: { id: targetStructureId, managerId: staffId },
-      });
+      const [managedDept, managedDiv, managedSec] = await Promise.all([
+        prisma.department.findFirst({
+          where: { id: targetStructureId, managerId: staffId },
+        }),
+        prisma.division.findFirst({
+          where: { id: targetStructureId, managerId: staffId },
+        }),
+        prisma.section.findFirst({
+          where: { id: targetStructureId, managerId: staffId },
+        }),
+      ]);
 
-      if (managedDiv && defaultSectionId) {
-        const targetSection = await prisma.section.findUnique({
-          where: { id: defaultSectionId },
-        });
-        if (targetSection?.divisionId !== managedDiv.id) {
-          throw new BadRequestError(
-            "Hierarchy Violation: You can only reassign this Division Manager to a Section within their own Division.",
-          );
-        }
+      if (!managedDept && !managedDiv && !managedSec) {
+        throw new BadRequestError(
+          "Target staff member does not manage the specified structural unit.",
+        );
       }
 
-      await prisma.department.updateMany({
-        where: { id: targetStructureId, managerId: staffId },
-        data: { managerId: null },
-      });
-      await prisma.division.updateMany({
-        where: { id: targetStructureId, managerId: staffId },
-        data: { managerId: null },
-      });
-      await prisma.section.updateMany({
-        where: { id: targetStructureId, managerId: staffId },
-        data: { managerId: null },
-      });
+      if (managedDept) {
+        if (updatedById && !isSystemAdmin) {
+          throw new BadRequestError(
+            "Unauthorized: Only a System Admin can remove a Department Manager.",
+          );
+        }
+        await prisma.department.update({
+          where: { id: targetStructureId },
+          data: { managerId: null, updatedById },
+        });
+      } else if (managedDiv) {
+        if (
+          updatedById &&
+          !isSystemAdmin &&
+          operatorManagedDeptId !== managedDiv.departmentId
+        ) {
+          throw new BadRequestError(
+            "Unauthorized: Only a System Admin or the parent Department Manager can remove this Division Manager.",
+          );
+        }
+        await prisma.division.update({
+          where: { id: targetStructureId },
+          data: { managerId: null, updatedBy: updatedById || undefined },
+        });
+      } else if (managedSec) {
+        const sectDetails = await prisma.section.findUnique({
+          where: { id: targetStructureId },
+          include: { division: true },
+        });
+        if (updatedById && !isSystemAdmin) {
+          const isGrandparentDept =
+            operatorManagedDeptId === sectDetails?.division.departmentId;
+          const isParentDiv = operatorManagedDivId === sectDetails?.divisionId;
+
+          if (!isGrandparentDept && !isParentDiv) {
+            throw new BadRequestError(
+              "Unauthorized: Only a System Admin, parent Department Manager, or parent Division Manager can revoke this Section Manager.",
+            );
+          }
+        }
+        await prisma.section.update({
+          where: { id: targetStructureId },
+          data: { managerId: null, updatedBy: updatedById || undefined },
+        });
+      }
+
+      updateStaffData.isManager = false;
+      willBeManager = false;
       break;
   }
 
-  const finalDepts = await prisma.department.count({
-    where: { managerId: staffId },
-  });
-  const finalDivs = await prisma.division.count({
-    where: { managerId: staffId },
-  });
-  const finalSecs = await prisma.section.count({
-    where: { managerId: staffId },
-  });
-
-  updateStaffData.isManager = finalDepts + finalDivs + finalSecs > 0;
-
-  const willHaveAdmin =
-    roleToRemove === "SYSTEM_ADMIN" ? false : staff.isSAdmin;
-  const willHaveSupport =
-    roleToRemove === "PS_SUPPORT" ? false : staff.isPSsupport;
-
-  if (!willHaveAdmin && !updateStaffData.isManager && !willHaveSupport) {
-    if (!defaultSectionId) {
-      throw new BadRequestError(
-        "Downgrade constraint triggered: Provide a 'defaultSectionId' to reassign them as a PS Support agent.",
-      );
-    }
-
-    updateStaffData.isPSsupport = true;
-    updateStaffData.section = { connect: { id: defaultSectionId } };
+  if (!willBeAdmin && !willBeManager && !willBeSupport) {
+    throw new BadRequestError(
+      "Role isolation constraint: A staff member must possess at least one active role. You cannot remove this role unless you assign them to another role first.",
+    );
   }
 
-  return prisma.staff.update({ where: { id: staffId }, data: updateStaffData });
+  return prisma.staff.update({
+    where: { id: staffId },
+    data: updateStaffData,
+  });
 };

@@ -7,12 +7,7 @@ const router = Router();
 
 router.use(authenticateToken);
 router.use(
-  requireRole(
-    "SYSTEM_ADMIN",
-    "DEPARTMENT_MANAGER",
-    "DIVISION_MANAGER",
-    "SECTION_MANAGER",
-  ),
+  requireRole("SYSTEM_ADMIN", "DEPARTMENT_MANAGER", "DIVISION_MANAGER"),
 );
 
 router.post("/create", SectionController.create);
