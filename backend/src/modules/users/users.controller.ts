@@ -32,8 +32,12 @@ export const updateProfile = async (
     });
 
     res.status(200).json({
-      message: "User Profile updated successfully.",
-      data: updatedProfile,
+      message: "User Profile password updated successfully.",
+      data: {
+        id: updatedProfile.id,
+        userType: userType,
+        updatedAt: (updatedProfile as any).updatedAt,
+      },
     });
   } catch (error: any) {
     const statusCode = error.statusCode || 500;

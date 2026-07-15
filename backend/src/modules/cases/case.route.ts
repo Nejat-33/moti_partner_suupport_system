@@ -8,7 +8,7 @@ router.use(authenticateToken);
 
 router.post("/create", cases.CreateCase);
 router.patch("/:id/assign", cases.AssignCase);
-// router.patch("/:id/reassign", cases.);
+router.patch("/:id/reassign", cases.ReassignCase);
 router.patch("/cases/:id/priority", cases.GivePriority);
 router.patch("/cases/:id/close", cases.CloseCase);
 

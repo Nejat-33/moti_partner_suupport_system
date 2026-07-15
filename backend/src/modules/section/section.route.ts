@@ -11,12 +11,9 @@ router.use(
 );
 
 router.post("/create", SectionController.create);
-router.put("/:id", SectionController.update);
+router.put("/update/:id", SectionController.update);
 router.patch("/:id/deactivate", SectionController.deactivate);
 router.patch("/:id/reactivate", SectionController.reactivate);
-
-router.post("/:id/staff", SectionController.linkStaff);
-router.delete("/:id/staff/:staffId", SectionController.unlinkStaff);
 
 router.get("/getAll", SectionController.getAll);
 router.get("/get/:id", SectionController.getSingle);

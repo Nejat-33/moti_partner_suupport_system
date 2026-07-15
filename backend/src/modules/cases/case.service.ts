@@ -1,7 +1,13 @@
 import { prisma } from "../../config/database";
 import { BadRequestError, NotFoundError } from "../../utils/error";
-import { CaseStatus, CasePriority } from "@prisma/client";
+import {
+  CaseStatus,
+  CasePriority,
+  PartyType,
+  NotificationType,
+} from "@prisma/client";
 import { sendStatusUpdateEmail } from "../../utils/email";
+import { NotificationService } from "../notifications/notification.service";
 
 interface CreateCaseInput {
   branchName: string;
@@ -16,29 +22,43 @@ interface CreateCaseInput {
 type Priority = "HIGH" | "MEDIUM" | "LOW";
 
 export const createCase = async (input: CreateCaseInput) => {
-  return await prisma.caseReport.create({
-    data: {
-      ...input,
-      status: CaseStatus.OPEN,
-    },
+  const newCase = await prisma.caseReport.create({
+    data: { ...input, status: CaseStatus.OPEN },
   });
+
+  try {
+    const systemAdmins = await prisma.staff.findMany({
+      where: { isSAdmin: true },
+      select: { id: true },
+    });
+
+    if (systemAdmins.length > 0) {
+      await NotificationService.createSystemNotification({
+        recipientIds: systemAdmins.map((a) => a.id),
+        recipientType: PartyType.STAFF,
+        type: NotificationType.NEW_CASE_SUBMITTED,
+        message: `New Case Initialized: [${newCase.branchName}] - ${newCase.subject}.`,
+        caseReportId: newCase.id,
+      });
+    }
+  } catch (err) {
+    console.error("Notification logging decoupled warning: ", err);
+  }
+
+  return newCase;
 };
 
-const triggerStatusNotification = async (caseId: string, newStatus: string) => {
-  const caseDetails = await prisma.caseReport.findUnique({
-    where: { id: caseId },
-    include: { customer: true },
+const triggerStatusNotification = async (
+  caseDetails: any,
+  newStatus: string,
+) => {
+  await sendStatusUpdateEmail({
+    customerEmail: caseDetails.customer.email,
+    customerName: caseDetails.customer.fullName,
+    caseNumber: caseDetails.caseNumber,
+    subjectLine: caseDetails.subject,
+    newStatus: newStatus,
   });
-
-  if (caseDetails?.customer?.email) {
-    sendStatusUpdateEmail({
-      customerEmail: caseDetails.customer.email,
-      customerName: caseDetails.customer.fullName,
-      caseNumber: caseDetails.caseNumber,
-      subjectLine: caseDetails.subject,
-      newStatus: newStatus,
-    });
-  }
 };
 
 export const assignCaseSupport = async (
@@ -51,8 +71,8 @@ export const assignCaseSupport = async (
   });
   if (!targetCase) throw new NotFoundError("Case file not found.");
 
-  const result = await prisma.$transaction(async (tx) => {
-    const updatedCase = await tx.caseReport.update({
+  await prisma.$transaction(async (tx) => {
+    await tx.caseReport.update({
       where: { id: caseId },
       data: {
         assignedSupportId,
@@ -73,11 +93,106 @@ export const assignCaseSupport = async (
         newAgentId: assignedSupportId,
       },
     });
-    return updatedCase;
   });
 
-  await triggerStatusNotification(caseId, CaseStatus.ASSIGNED);
-  return result;
+  const completeCaseDetails = await prisma.caseReport.findUnique({
+    where: { id: caseId },
+    include: {
+      customer: true,
+    },
+  });
+  if (!completeCaseDetails) {
+    throw new NotFoundError("Updated case details could not be found.");
+  }
+  try {
+    await NotificationService.createSystemNotification({
+      recipientIds: [assignedSupportId],
+      recipientType: PartyType.STAFF,
+      type: NotificationType.CASE_ASSIGNED,
+      message: `Case Assigned: You have been assigned to handle Case #${completeCaseDetails.caseNumber} ("${completeCaseDetails.subject}").`,
+      caseReportId: completeCaseDetails.id,
+    });
+    console.log(
+      `In-app notification sent successfully to Agent: ${assignedSupportId}`,
+    );
+  } catch (notificationError) {
+    console.error(
+      "Warning: Failed to create in-app notification for assigned agent:",
+      notificationError,
+    );
+  }
+  try {
+    if (completeCaseDetails) {
+      await triggerStatusNotification(completeCaseDetails, CaseStatus.ASSIGNED);
+    }
+  } catch (emailError) {
+    console.error("Asynchronous email tracking notice warning:", emailError);
+  }
+
+  return completeCaseDetails;
+};
+
+export const reassignCaseSupport = async (
+  caseId: string,
+  assignedSupportId: string,
+  operatorId: string,
+) => {
+  const targetCase = await prisma.caseReport.findUnique({
+    where: { id: caseId },
+  });
+  if (!targetCase) throw new NotFoundError("Case file not found.");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.caseReport.update({
+      where: { id: caseId },
+      data: {
+        assignedSupportId,
+        updatedById: operatorId,
+      },
+    });
+
+    await tx.caseStatusHistory.create({
+      data: {
+        caseReportId: caseId,
+        changedById: operatorId,
+        oldStatus: targetCase.status,
+        newStatus: CaseStatus.ASSIGNED,
+        oldPriority: targetCase.priority,
+        newPriority: targetCase.priority,
+        oldAgentId: targetCase.assignedSupportId,
+        newAgentId: assignedSupportId,
+      },
+    });
+  });
+
+  const completeCaseDetails = await prisma.caseReport.findUnique({
+    where: { id: caseId },
+    include: {
+      customer: true,
+    },
+  });
+  if (!completeCaseDetails) {
+    throw new NotFoundError("Updated case details could not be found.");
+  }
+  try {
+    await NotificationService.createSystemNotification({
+      recipientIds: [assignedSupportId],
+      recipientType: PartyType.STAFF,
+      type: NotificationType.CASE_ASSIGNED,
+      message: `Case Assigned: You have been assigned to handle Case #${completeCaseDetails.caseNumber} ("${completeCaseDetails.subject}").`,
+      caseReportId: completeCaseDetails.id,
+    });
+    console.log(
+      `In-app notification sent successfully to Agent: ${assignedSupportId}`,
+    );
+  } catch (notificationError) {
+    console.error(
+      "Warning: Failed to create in-app notification for assigned agent:",
+      notificationError,
+    );
+  }
+
+  return completeCaseDetails;
 };
 
 export const updateCasePriority = async (
@@ -88,7 +203,14 @@ export const updateCasePriority = async (
   const targetCase = await prisma.caseReport.findUnique({
     where: { id: caseId },
   });
+
   if (!targetCase) throw new NotFoundError("Case file not found.");
+
+  if (targetCase.status === "CLOSED" || targetCase.status === "RESOLVED") {
+    throw new BadRequestError(
+      "Operational Refusal: Target case is resolved and locked down.",
+    );
+  }
 
   return await prisma.$transaction(async (tx) => {
     const updatedCase = await tx.caseReport.update({

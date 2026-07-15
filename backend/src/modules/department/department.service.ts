@@ -16,7 +16,7 @@ interface UpdateDeptInput {
 }
 
 export const createDepartment = async (input: CreateDeptInput) => {
-  if (!input.name.trim()) {
+  if (!input.name || !input.name.trim()) {
     throw new BadRequestError(
       "Department title cannot match an empty sequence string.",
     );
@@ -25,19 +25,71 @@ export const createDepartment = async (input: CreateDeptInput) => {
   const existing = await prisma.department.findUnique({
     where: { name: input.name },
   });
-  if (existing)
+  if (existing) {
     throw new ConflictError(
       "A department with this name already exists inside the database.",
     );
+  }
 
   return prisma.department.create({
     data: {
       name: input.name,
       isActive: true,
-      createdById: input.adminId,
+      createdBy: {
+        connect: { id: input.adminId },
+      },
     },
     include: {
       createdBy: { select: { id: true, fullName: true, email: true } },
+    },
+  });
+};
+
+export const updateDepartment = async (id: string, input: UpdateDeptInput) => {
+  const department = await prisma.department.findUnique({ where: { id } });
+  if (!department) {
+    throw new NotFoundError("Target department reference missing.");
+  }
+
+  if (input.name !== department.name) {
+    const duplicate = await prisma.department.findUnique({
+      where: { name: input.name },
+    });
+    if (duplicate) {
+      throw new ConflictError(
+        "Another department is already using this corporate identity name.",
+      );
+    }
+  }
+
+  return prisma.department.update({
+    where: { id },
+    data: {
+      name: input.name,
+      updatedBy: {
+        connect: { id: input.adminId },
+      },
+    },
+  });
+};
+
+export const setDepartmentStatus = async (
+  id: string,
+  setActive: boolean,
+  adminId: string,
+) => {
+  const department = await prisma.department.findUnique({ where: { id } });
+  if (!department) {
+    throw new NotFoundError("Target department reference missing.");
+  }
+
+  return prisma.department.update({
+    where: { id },
+    data: {
+      isActive: setActive,
+      updatedBy: {
+        connect: { id: adminId },
+      },
     },
   });
 };
@@ -72,46 +124,4 @@ export const getDepartmentById = async (id: string) => {
       "Target department reference could not be located.",
     );
   return department;
-};
-
-export const updateDepartment = async (id: string, input: UpdateDeptInput) => {
-  const department = await prisma.department.findUnique({ where: { id } });
-  if (!department)
-    throw new NotFoundError("Target department reference missing.");
-
-  if (input.name !== department.name) {
-    const duplicate = await prisma.department.findUnique({
-      where: { name: input.name },
-    });
-    if (duplicate)
-      throw new ConflictError(
-        "Another department is already using this corporate identity name.",
-      );
-  }
-
-  return prisma.department.update({
-    where: { id },
-    data: {
-      name: input.name,
-      updatedById: input.adminId,
-    },
-  });
-};
-
-export const setDepartmentStatus = async (
-  id: string,
-  setActive: boolean,
-  adminId: string,
-) => {
-  const department = await prisma.department.findUnique({ where: { id } });
-  if (!department)
-    throw new NotFoundError("Target department reference missing.");
-
-  return prisma.department.update({
-    where: { id },
-    data: {
-      isActive: setActive,
-      updatedById: adminId,
-    },
-  });
 };

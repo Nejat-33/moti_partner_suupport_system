@@ -1,33 +1,38 @@
 import { prisma } from "../../config/database";
+import { BcryptUtils } from "../../utils/bcrypt";
 import {
   ForbiddenError,
   NotFoundError,
   BadRequestError,
 } from "../../utils/error";
 
-interface UpdateProfileInput {
+export interface UpdateProfileInput {
   targetUserId: string;
   userType: "STAFF" | "CUSTOMER";
   requestedById: string;
-  updateData: any;
+  updateData: {
+    password?: string;
+    [key: string]: any;
+  };
 }
 
 export const updateProfileWithRBAC = async (input: UpdateProfileInput) => {
   const { targetUserId, userType, requestedById, updateData } = input;
 
+  const isSelfUpdate = targetUserId === requestedById;
+  let isSystemAdmin = false;
+
   const operator = await prisma.staff.findUnique({
     where: { id: requestedById },
   });
-  if (!operator) {
-    throw new ForbiddenError("Access Denied: Requester profile not found.");
-  }
 
-  const isSelfUpdate = targetUserId === requestedById;
-  const isSystemAdmin = operator.isSAdmin;
+  if (operator) {
+    isSystemAdmin = operator.isSAdmin;
+  }
 
   if (!isSelfUpdate && !isSystemAdmin) {
     throw new ForbiddenError(
-      "Access Denied: You are only allowed to modify your own profile.",
+      "Access Denied: You are only allowed to modify your own profile unless you are a System Admin.",
     );
   }
 
@@ -39,44 +44,54 @@ export const updateProfileWithRBAC = async (input: UpdateProfileInput) => {
 
   if (containsIllegalFields) {
     throw new BadRequestError(
-      "Validation Failure, Only password modification is permitted.",
+      "Validation Failure: Only password modification is permitted through this route.",
     );
   }
 
   if (!updateData.password) {
     throw new BadRequestError(
-      "Validation Failure: Missing required 'password'.",
+      "Validation Failure: Missing required 'password' property.",
     );
   }
 
-  return await executeUpdate(targetUserId, userType, requestedById, {
-    password: updateData.password,
-  });
+  const hashedSecurePassword = await BcryptUtils.hash(updateData.password);
+
+  return await executeUpdate(
+    targetUserId,
+    userType,
+    requestedById,
+    hashedSecurePassword,
+  );
 };
 
 const executeUpdate = async (
   id: string,
   type: "STAFF" | "CUSTOMER",
   updatedById: string,
-  data: any,
+  hashedPasswordString: string,
 ) => {
-  const auditData: any = {
-    password: data.password,
-  };
-
   if (type === "STAFF") {
-    auditData.updatedBy = { connect: { id: updatedById } };
+    const staffExists = await prisma.staff.findUnique({ where: { id } });
+    if (!staffExists) throw new NotFoundError("Target staff record not found.");
 
     return await prisma.staff.update({
       where: { id },
-      data: auditData,
+      data: {
+        passwordHash: hashedPasswordString,
+        updatedBy: { connect: { id: updatedById } },
+      },
     });
   } else {
-    auditData.updatedById = updatedById;
+    const customerExists = await prisma.customer.findUnique({ where: { id } });
+    if (!customerExists)
+      throw new NotFoundError("Target customer record not found.");
 
     return await prisma.customer.update({
       where: { id },
-      data: auditData,
+      data: {
+        passwordHash: hashedPasswordString,
+        updatedById: updatedById,
+      },
     });
   }
 };

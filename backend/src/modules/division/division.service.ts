@@ -13,7 +13,7 @@ interface UpdateDivisionInput {
 }
 
 export const createDivision = async (input: CreateDivisionInput) => {
-  if (!input.name.trim()) {
+  if (!input.name || !input.name.trim()) {
     throw new BadRequestError("Division title cannot be empty.");
   }
 
@@ -30,7 +30,9 @@ export const createDivision = async (input: CreateDivisionInput) => {
   return prisma.division.create({
     data: {
       name: input.name,
-      departmentId: input.departmentId,
+      department: {
+        connect: { id: input.departmentId },
+      },
       isActive: true,
       createdBy: input.adminId,
     },
@@ -38,35 +40,6 @@ export const createDivision = async (input: CreateDivisionInput) => {
       department: { select: { id: true, name: true } },
     },
   });
-};
-
-export const getAllDivisions = async () => {
-  return prisma.division.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      department: { select: { id: true, name: true } },
-      manager: { select: { id: true, fullName: true, email: true } },
-      _count: {
-        select: { sections: true },
-      },
-    },
-  });
-};
-
-export const getDivisionById = async (id: string) => {
-  const division = await prisma.division.findUnique({
-    where: { id },
-    include: {
-      department: { select: { id: true, name: true } },
-      manager: { select: { id: true, fullName: true, email: true } },
-      sections: {
-        select: { id: true, name: true, isActive: true },
-      },
-    },
-  });
-
-  if (!division) throw new NotFoundError("Target division record not found.");
-  return division;
 };
 
 export const updateDivision = async (
@@ -100,4 +73,33 @@ export const setDivisionStatus = async (
       updatedBy: adminId,
     },
   });
+};
+
+export const getAllDivisions = async () => {
+  return prisma.division.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      department: { select: { id: true, name: true } },
+      manager: { select: { id: true, fullName: true, email: true } },
+      _count: {
+        select: { sections: true },
+      },
+    },
+  });
+};
+
+export const getDivisionById = async (id: string) => {
+  const division = await prisma.division.findUnique({
+    where: { id },
+    include: {
+      department: { select: { id: true, name: true } },
+      manager: { select: { id: true, fullName: true, email: true } },
+      sections: {
+        select: { id: true, name: true, isActive: true },
+      },
+    },
+  });
+
+  if (!division) throw new NotFoundError("Target division record not found.");
+  return division;
 };

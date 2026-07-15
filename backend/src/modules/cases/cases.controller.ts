@@ -6,6 +6,7 @@ import {
   NotFoundError,
 } from "../../utils/error";
 import { CasePriority } from "@prisma/client";
+import { prisma } from "../../config/database";
 
 const hasStructuralAuthorization = (
   operator: any,
@@ -31,13 +32,64 @@ const hasStructuralAuthorization = (
 
   return !!(sectionMatch || divisionMatch || departmentMatch);
 };
+const hasStructuralAuthorization2 = (actor: any, targetCase: any): boolean => {
+  if (targetCase.assignedSupportId === actor.userId) {
+    return true;
+  }
 
-export const CreateCase = async (req: Request, res: Response) => {
+  if (actor.role === "DEPARTMENT_MANAGER" && actor.departmentId) {
+    return targetCase.departmentId === actor.departmentId;
+  }
+
+  if (actor.role === "DIVISION_MANAGER" && actor.divisionId) {
+    return (
+      targetCase.divisionId === actor.divisionId &&
+      targetCase.departmentId === actor.departmentId
+    );
+  }
+
+  if (actor.role === "SECTION_MANAGER" && actor.sectionId) {
+    return (
+      targetCase.sectionId === actor.sectionId &&
+      targetCase.divisionId === actor.divisionId &&
+      targetCase.departmentId === actor.departmentId
+    );
+  }
+
+  return false;
+};
+
+export const CreateCase = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const actor = (req as any).user;
-    if (!actor.isCustomer && !actor.isSAdmin) {
+
+    if (!actor || !actor.userId) {
+      throw new ForbiddenError("Access Denied: Invalid token credentials.");
+    }
+
+    const customerRecord = await prisma.customer.findUnique({
+      where: { id: actor.userId },
+    });
+
+    let isCustomer = !!customerRecord;
+    let isSAdmin = false;
+
+    if (!isCustomer) {
+      const staffRecord = await prisma.staff.findUnique({
+        where: { id: actor.userId },
+      });
+
+      if (staffRecord && staffRecord.isSAdmin) {
+        isSAdmin = true;
+      }
+    }
+
+    if (!isCustomer && !isSAdmin) {
       throw new ForbiddenError(
-        "Only customers or system administrators can log a new case.",
+        "Access Denied: Only customers or system administrators can log a new case.",
       );
     }
 
@@ -51,11 +103,13 @@ export const CreateCase = async (req: Request, res: Response) => {
       serviceTypeId,
     } = req.body;
 
-    const resolvedCustomerId = actor.isCustomer ? actor.userId : customerId;
+    const resolvedCustomerId = isCustomer ? actor.userId : customerId;
+
     if (
       !resolvedCustomerId ||
       !branchName ||
       !productCategoryId ||
+      !productSubcategoryId ||
       !subject ||
       !description ||
       !serviceTypeId
@@ -63,6 +117,17 @@ export const CreateCase = async (req: Request, res: Response) => {
       throw new BadRequestError(
         "Missing core parameters needed to initialize Case Report.",
       );
+    }
+
+    if (isSAdmin) {
+      const inputCustomerCheck = await prisma.customer.findUnique({
+        where: { id: customerId },
+      });
+      if (!inputCustomerCheck) {
+        throw new NotFoundError(
+          "The specified customer account could not be found.",
+        );
+      }
     }
 
     const result = await CaseService.createCase({
@@ -81,37 +146,175 @@ export const CreateCase = async (req: Request, res: Response) => {
   }
 };
 
-export const AssignCase = async (req: Request, res: Response) => {
+export const AssignCase = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     const actor = (req as any).user;
     const caseId = req.params.id as string;
     const { assignedSupportId } = req.body;
 
-    if (!assignedSupportId)
-      throw new BadRequestError("assignedSupportId parameter is mandatory.");
+    if (!assignedSupportId) {
+      throw new BadRequestError(
+        "The assignedSupportId parameter is mandatory.",
+      );
+    }
 
-    const targetCase = await CaseService.getCaseWithStructuralScope(caseId);
-    if (!targetCase) throw new NotFoundError("Case report record not found.");
+    if (!actor || !actor.userId) {
+      throw new ForbiddenError("Access Denied: Invalid token credentials.");
+    }
 
-    const isManager = actor.role?.includes("MANAGER");
+    const operator = await prisma.staff.findUnique({
+      where: { id: actor.userId },
+      include: {
+        managedDepartment: true,
+        managedDivision: true,
+        managedSection: true,
+      },
+    });
 
-    if (
-      !actor.isSAdmin &&
-      !(isManager && hasStructuralAuthorization(actor, targetCase))
-    ) {
+    if (!operator) {
       throw new ForbiddenError(
-        "Access Denied: Only System Admins or authorized organizational Managers can route this case.",
+        "Access Denied: Only staff members can route cases.",
+      );
+    }
+
+    const targetCase = await prisma.caseReport.findUnique({
+      where: { id: caseId },
+    });
+    if (!targetCase) {
+      throw new NotFoundError("Case report record not found.");
+    }
+
+    const isSystemAdmin = operator.isSAdmin;
+    const isDeptManager = !!operator.managedDepartment;
+
+    let hasAuthorization = false;
+
+    if (isSystemAdmin) {
+      hasAuthorization = true;
+    } else if (isDeptManager) {
+      const matchesDeptScope =
+        targetCase.productCategoryId === operator.managedDepartment?.id;
+
+      if (matchesDeptScope) {
+        hasAuthorization = true;
+      }
+    }
+
+    if (!hasAuthorization) {
+      throw new ForbiddenError(
+        "Access Denied: You do not possess structural management clearance to route this case.",
+      );
+    }
+    const assignedStaffCheck = await prisma.staff.findUnique({
+      where: { id: assignedSupportId },
+    });
+
+    if (!assignedStaffCheck) {
+      throw new BadRequestError(
+        `Assignment Failed: No staff member found with the ID "${assignedSupportId}". Please provide a valid Staff ID.`,
       );
     }
 
     const result = await CaseService.assignCaseSupport(
       caseId,
       assignedSupportId,
-      actor.userId,
+      operator.id,
     );
-    res
-      .status(200)
-      .json({ message: "Case successfully routed to agent.", data: result });
+
+    res.status(200).json({
+      message: "Case successfully routed to the assigned staff member.",
+      data: result,
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+export const ReassignCase = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const actor = (req as any).user;
+    const caseId = req.params.id as string;
+    const { assignedSupportId } = req.body;
+
+    if (!assignedSupportId) {
+      throw new BadRequestError(
+        "The assignedSupportId parameter is mandatory.",
+      );
+    }
+
+    if (!actor || !actor.userId) {
+      throw new ForbiddenError("Access Denied: Invalid token credentials.");
+    }
+
+    const operator = await prisma.staff.findUnique({
+      where: { id: actor.userId },
+      include: {
+        managedDepartment: true,
+        managedDivision: true,
+        managedSection: true,
+      },
+    });
+
+    if (!operator) {
+      throw new ForbiddenError(
+        "Access Denied: Only staff members can route cases.",
+      );
+    }
+
+    const targetCase = await prisma.caseReport.findUnique({
+      where: { id: caseId },
+    });
+    if (!targetCase) {
+      throw new NotFoundError("Case report record not found.");
+    }
+
+    const isSystemAdmin = operator.isSAdmin;
+    const isDeptManager = !!operator.managedDepartment;
+
+    let hasAuthorization = false;
+
+    if (isSystemAdmin) {
+      hasAuthorization = true;
+    } else if (isDeptManager) {
+      const matchesDeptScope =
+        targetCase.productCategoryId === operator.managedDepartment?.id;
+
+      if (matchesDeptScope) {
+        hasAuthorization = true;
+      }
+    }
+
+    if (!hasAuthorization) {
+      throw new ForbiddenError(
+        "Access Denied: You do not possess structural management clearance to route this case.",
+      );
+    }
+    const assignedStaffCheck = await prisma.staff.findUnique({
+      where: { id: assignedSupportId },
+    });
+
+    if (!assignedStaffCheck) {
+      throw new BadRequestError(
+        `Assignment Failed: No staff member found with the ID "${assignedSupportId}". Please provide a valid Staff ID.`,
+      );
+    }
+
+    const result = await CaseService.assignCaseSupport(
+      caseId,
+      assignedSupportId,
+      operator.id,
+    );
+
+    res.status(200).json({
+      message: "Case successfully routed to the assigned staff member.",
+      data: result,
+    });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ message: error.message });
   }
@@ -132,8 +335,13 @@ export const GivePriority = async (req: Request, res: Response) => {
     const targetCase = await CaseService.getCaseWithStructuralScope(caseId);
     if (!targetCase) throw new NotFoundError("Case report record not found.");
 
-    const isManager = actor.role?.includes("MANAGER");
+    if (targetCase.status === "RESOLVED" || targetCase.status === "CLOSED") {
+      throw new BadRequestError(
+        "Validation Failure: Cannot modify the priority of a RESOLVED case.",
+      );
+    }
 
+    const isManager = actor.role?.includes("MANAGER");
     if (
       !actor.isSAdmin &&
       !(isManager && hasStructuralAuthorization(actor, targetCase))
@@ -148,6 +356,7 @@ export const GivePriority = async (req: Request, res: Response) => {
       priority as CasePriority,
       actor.userId,
     );
+
     res.status(200).json({
       message: `Case priority successfully updated to ${priority}.`,
       data: result,

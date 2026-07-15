@@ -229,11 +229,18 @@ export const updateStaffRole = async (input: AssignRoleInput) => {
         updateData.updatedBy = { connect: { id: updatedById } };
       }
 
+      const operatorId =
+        typeof updateData === "string" ? updateData : updatedById;
+
       await prisma.department.update({
         where: { id: departmentId },
         data: {
-          managerId: staffId,
-          updatedBy: updateData,
+          manager: {
+            connect: { id: staffId },
+          },
+          updatedBy: {
+            connect: { id: operatorId },
+          },
         },
       });
     } else if (managerType === "DIVISION") {

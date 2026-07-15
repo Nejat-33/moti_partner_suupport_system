@@ -404,7 +404,6 @@ model Notification {
   caseReport          CaseReport?            @relation(fields: [caseReportId], references: [id])
   type          NotificationType
   message       String           @db.VarChar(500)
-  isRead        Boolean          @default(false)
   createdAt     DateTime         @default(now())
 
   

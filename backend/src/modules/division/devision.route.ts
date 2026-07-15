@@ -13,6 +13,6 @@ router.put("/update:id", DivisionController.update);
 router.patch("/:id/deactivate", DivisionController.deactivate);
 router.patch("/:id/reactivate", DivisionController.reactivate);
 router.get("/getAll", DivisionController.getAll);
-router.get("/get:id", DivisionController.getSingle);
+router.get("/get/:id", DivisionController.getSingle);
 
 export const DivisionRoute = router;
