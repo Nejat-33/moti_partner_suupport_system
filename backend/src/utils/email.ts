@@ -118,7 +118,7 @@ export const sendStatusUpdateEmail = async (input: StatusEmailInput) => {
   try {
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: `"Support System" <no-reply@yourcompany.com>`,
+      from: ENV.SMTP_FROM || '"MOTI Support System"',
       to: customerEmail,
       subject: `[Update] Case #${caseNumber} Status Changed to ${newStatus}`,
       html: htmlContent,
@@ -129,4 +129,94 @@ export const sendStatusUpdateEmail = async (input: StatusEmailInput) => {
       error,
     );
   }
+};
+
+export const triggerResolutionEmail = async (caseReport: any): Promise<void> => {
+  const customerEmail = caseReport.customer?.email;
+  const customerName = caseReport.customer?.firstName || "Valued Customer";
+
+  if (!customerEmail) {
+    console.warn(`[EmailService] Skipped email notice: No email found for customer on case ID ${caseReport.id}`);
+    return;
+  }
+
+  const FRONTEND_BASE_URL = ENV.FRONTEND_URL || "http://localhost:3000";
+
+  const acceptAndRateLink = `${FRONTEND_BASE_URL}/cases/${caseReport.id}/feedback`;
+  const rejectAndReopenLink = `${FRONTEND_BASE_URL}/cases/${caseReport.id}/reopen`;
+
+  const emailSubject = `Case Resolved: #${caseReport.caseNumber || 'Update'} - ${caseReport.subject}`;
+
+  const emailHtml = `
+    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+      <h2 style="color: #2b6cb0; margin-bottom: 16px;">Your Case Has Been Resolved</h2>
+      <p>Hello ${customerName},</p>
+      <p>An agent has updated your support ticket and submitted a resolution summary for your review.</p>
+      
+      <div style="background-color: #f7fafc; border-left: 4px solid #4299e1; padding: 16px; margin: 20px 0; border-radius: 0 4px 4px 0;">
+        <strong style="display: block; margin-bottom: 6px; color: #2d3748;">Resolution Summary:</strong>
+        <p style="margin: 0; color: #4a5568; font-style: italic; white-space: pre-wrap;">"${caseReport.resolutionSummary}"</p>
+      </div>
+
+      <p style="margin-bottom: 24px;">Please take a moment to confirm if this issue is settled to your satisfaction:</p>
+      
+      <div style="margin-bottom: 24px;">
+        <a href="${acceptAndRateLink}" style="background-color: #38a169; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-right: 12px; margin-bottom: 12px;">
+          Accept & Close Case
+        </a>
+        <a href="${rejectAndReopenLink}" style="background-color: #e53e3e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-bottom: 12px;">
+          Reject & Reopen
+        </a>
+      </div>
+
+      <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+      <p style="font-size: 12px; color: #718096; line-height: 1.5;">
+        <strong>Please Note:</strong> If you do not accept or reject this resolution within <strong>3 days</strong>, our system will automatically mark this case file as closed. If you require further help after that point, you will need to open a brand new support case.
+      </p>
+    </div>
+  `;
+
+  const transporter = getTransporter();
+
+  await transporter.sendMail({
+    from: ENV.SMTP_FROM || '"MOTI Support System"',
+    to: customerEmail,
+    subject: emailSubject,
+    html: emailHtml,
+  });
+};
+
+
+export const triggerAutoCloseEmail = async (caseReport: any): Promise<void> => {
+  const customerEmail = caseReport.customer?.email;
+  const customerName = caseReport.customer?.firstName || "Valued Customer";
+
+  if (!customerEmail) return;
+
+  const emailSubject = `Notice: Case #${caseReport.caseNumber || "Update"} has been closed automatically`;
+
+  const emailHtml = `
+    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+      <h2 style="color: #4a5568; margin-bottom: 16px;">Case Closed Due to Inactivity</h2>
+      <p>Hello ${customerName},</p>
+      <p>Your support case regarding <strong>"${caseReport.subject}"</strong> was marked as resolved 3 days ago.</p>
+      <p>Because we didn't receive a confirmation or rejection response from you, our automated system has closed the ticket to keep our queues clear.</p>
+      
+      <div style="background-color: #fffaf0; border-left: 4px solid #dd6b20; padding: 16px; margin: 20px 0; border-radius: 0 4px 4px 0;">
+        <p style="margin: 0; color: #dd6b20; font-weight: bold;">Need to continue working on this issue?</p>
+        <p style="margin: 4px 0 0 0; color: #7b341e;">Please initialize a new support case report from your dashboard, and reference Case #${caseReport.caseNumber} so our agents can see the history.</p>
+      </div>
+
+      <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+      <p style="font-size: 12px; color: #a0aec0; text-align: center;">Thank you for choosing our services.</p>
+    </div>
+  `;
+
+  const transporter = getTransporter();
+  await transporter.sendMail({
+    from: ENV.SMTP_FROM || '"MOTI Support System"',
+    to: customerEmail,
+    subject: emailSubject,
+    html: emailHtml,
+  });
 };

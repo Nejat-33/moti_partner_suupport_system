@@ -5,7 +5,9 @@ import crypto from "crypto";
 import { NotFoundError } from "../../utils/error";
 
 export const RegisterCustomer = async (data: {
-  fullName: string;
+  firstName: string;
+  lastName: string;
+  middleName: string;
   email: string;
   passwordPlain: string;
   gender: "MALE" | "FEMALE";
@@ -29,7 +31,9 @@ export const RegisterCustomer = async (data: {
   const txResult = await prisma.$transaction(async (tx) => {
     const newCustomer = await tx.customer.create({
       data: {
-        fullName: data.fullName,
+        firstName: data.firstName,
+        middleName: data.middleName,
+        lastName: data.lastName,
         email: data.email,
         phoneNumber: data.phoneNumber,
         position: data.position,
@@ -77,7 +81,9 @@ export const RegisterCustomer = async (data: {
     return {
       customerId: newCustomer.id,
       email: newCustomer.email,
-      fullName: newCustomer.fullName,
+      firstName: newCustomer.firstName,
+      lastName: newCustomer.lastName,
+      middleName: newCustomer.middleName,
       emailLogId: loggedEmail.id,
       rawToken,
     };
@@ -85,7 +91,7 @@ export const RegisterCustomer = async (data: {
 
   const deliverySuccess = await sendVerificationEmail(
     txResult.email,
-    txResult.fullName,
+    `${txResult.firstName} ${txResult.lastName}`,
     txResult.rawToken,
     "CUSTOMER",
   );
@@ -182,13 +188,16 @@ export const resendCustomerVerification = async (email: string) => {
       emailLogId: loggedEmail.id,
       rawToken,
       email: customer.email,
-      fullName: customer.fullName,
+      firstName: customer.firstName,
+      lastName: customer.lastName,
+      middleName: customer.middleName,
     };
   });
 
   const deliverySuccess = await sendVerificationEmail(
     txResult.email,
-    txResult.fullName,
+    txResult.firstName && txResult.lastName
+    && `${txResult.firstName} ${txResult.lastName}`,
     txResult.rawToken,
     "CUSTOMER",
   );
@@ -225,7 +234,7 @@ export const getCustomerCaseHistory = async (customerId: string) => {
             select: { name: true },
           },
           assignedSupport: {
-            select: { fullName: true },
+            select: { firstName: true, lastName: true },
           },
         },
       },

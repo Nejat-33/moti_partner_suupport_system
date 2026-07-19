@@ -1,6 +1,6 @@
 import { prisma } from "../../config/database";
 import { NotFoundError, BadRequestError } from "../../utils/error";
-import { CaseStatus, CasePriority } from "@prisma/client";
+import { CaseStatus, CasePriority } from "../../../generated/prisma/client";
 import { sendStatusUpdateEmail } from "../../utils/email";
 
 interface FetchCasesFilterInput {

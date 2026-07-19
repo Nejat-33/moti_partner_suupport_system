@@ -8,9 +8,9 @@ import {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const register = async (req: Request, res: Response): Promise<void> => {
-  const { fullName, email, password, gender } = req.body;
+  const { firstName, lastName, middleName, email, password, gender } = req.body;
 
-  if (!fullName || !email || !password || !gender) {
+  if (!firstName || !middleName || !lastName || !email || !password || !gender) {
     res
       .status(400)
       .json({ error: "Missing mandatory registration profile fields." });
@@ -30,14 +30,21 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  if (fullName.trim().length < 2) {
-    res.status(400).json({ error: "Full name parameter is too short." });
+  if (firstName.trim().length < 2) {
+    res.status(400).json({ error: "First name parameter is too short." });
+    return;
+  }
+
+  if (lastName.trim().length < 2) {
+    res.status(400).json({ error: "Last name parameter is too short." });
     return;
   }
 
   try {
     const result = await Register({
-      fullName: fullName.trim(),
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      middleName: middleName.trim(),
       email: email.trim().toLowerCase(),
       passwordPlain: password,
       gender,

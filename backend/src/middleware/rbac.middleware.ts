@@ -20,6 +20,7 @@ export const requireRole = (...allowedRoles: AllowedRoles[]) => {
 
       let hasClearance = false;
 
+
       if (allowedRoles.includes("SYSTEM_ADMIN")) {
         if (req.user.partyType === "STAFF" && req.user.isSAdmin === true) {
           hasClearance = true;
@@ -54,6 +55,12 @@ export const requireRole = (...allowedRoles: AllowedRoles[]) => {
           hasClearance = true;
         }
       }
+
+      if (allowedRoles.includes("STAFF")) {
+  if (req.user.partyType === "STAFF") {
+    hasClearance = true;
+  }
+}
 
       if (allowedRoles.includes("CUSTOMER")) {
         if (req.user.partyType === "CUSTOMER") {

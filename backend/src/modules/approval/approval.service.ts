@@ -2,7 +2,6 @@ import { prisma } from "../../config/database";
 import { BadRequestError, NotFoundError } from "../../utils/error";
 import {
   AssignStaffRole,
-  updateStaffRole,
 } from "../roleassignment/roleassignment.service";
 
 type UserType = "STAFF" | "CUSTOMER";

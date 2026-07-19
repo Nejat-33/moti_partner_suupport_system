@@ -1,13 +1,13 @@
-import { NotFoundError, BadRequestError } from "../../utils/error";
 import { prisma } from "../../config/database";
+import { BadRequestError, NotFoundError } from "../../utils/error";
 
-interface CreateSectionInput {
+export interface CreateSectionInput {
   name: string;
   divisionId: string;
   adminId: string;
 }
 
-interface UpdateSectionInput {
+export interface UpdateSectionInput {
   name: string;
   adminId: string;
 }
@@ -51,11 +51,7 @@ export const updateSection = async (id: string, input: UpdateSectionInput) => {
   });
 };
 
-export const setSectionStatus = async (
-  id: string,
-  setActive: boolean,
-  adminId: string,
-) => {
+export const setSectionStatus = async (id: string, setActive: boolean, adminId: string) => {
   const section = await prisma.section.findUnique({ where: { id } });
   if (!section) throw new NotFoundError("Target section missing.");
 
@@ -68,10 +64,7 @@ export const setSectionStatus = async (
   });
 };
 
-export const assignStaffToSection = async (
-  sectionId: string,
-  staffId: string,
-) => {
+export const assignStaffToSection = async (sectionId: string, staffId: string) => {
   const section = await prisma.section.findUnique({ where: { id: sectionId } });
   if (!section) throw new NotFoundError("Target section team map missing.");
 
@@ -88,10 +81,7 @@ export const assignStaffToSection = async (
   });
 };
 
-export const removeStaffFromSection = async (
-  sectionId: string,
-  staffId: string,
-) => {
+export const removeStaffFromSection = async (sectionId: string, staffId: string) => {
   const section = await prisma.section.findUnique({ where: { id: sectionId } });
   if (!section) throw new NotFoundError("Target section team map missing.");
 

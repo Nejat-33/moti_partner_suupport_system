@@ -1,96 +1,123 @@
 import { prisma } from "../../config/database";
-import { BcryptUtils } from "../../utils/bcrypt";
-import {
-  ForbiddenError,
-  NotFoundError,
-  BadRequestError,
-} from "../../utils/error";
+import bcrypt from "bcrypt";
 
-export interface UpdateProfileInput {
-  targetUserId: string;
-  userType: "STAFF" | "CUSTOMER";
-  requestedById: string;
-  updateData: {
-    password?: string;
-    [key: string]: any;
-  };
-}
+export const findAccountById = async (accountId: string) => {
+  const staff = await prisma.staff.findUnique({ where: { id: accountId } });
+  if (staff) return { account: staff, type: "STAFF" as const };
 
-export const updateProfileWithRBAC = async (input: UpdateProfileInput) => {
-  const { targetUserId, userType, requestedById, updateData } = input;
+  const customer = await prisma.customer.findUnique({ where: { id: accountId } });
+  if (customer) return { account: customer, type: "CUSTOMER" as const };
 
-  const isSelfUpdate = targetUserId === requestedById;
-  let isSystemAdmin = false;
-
-  const operator = await prisma.staff.findUnique({
-    where: { id: requestedById },
-  });
-
-  if (operator) {
-    isSystemAdmin = operator.isSAdmin;
-  }
-
-  if (!isSelfUpdate && !isSystemAdmin) {
-    throw new ForbiddenError(
-      "Access Denied: You are only allowed to modify your own profile unless you are a System Admin.",
-    );
-  }
-
-  const allowedFields = ["password"];
-  const incomingFields = Object.keys(updateData);
-  const containsIllegalFields = incomingFields.some(
-    (field) => !allowedFields.includes(field),
-  );
-
-  if (containsIllegalFields) {
-    throw new BadRequestError(
-      "Validation Failure: Only password modification is permitted through this route.",
-    );
-  }
-
-  if (!updateData.password) {
-    throw new BadRequestError(
-      "Validation Failure: Missing required 'password' property.",
-    );
-  }
-
-  const hashedSecurePassword = await BcryptUtils.hash(updateData.password);
-
-  return await executeUpdate(
-    targetUserId,
-    userType,
-    requestedById,
-    hashedSecurePassword,
-  );
+  return null;
 };
 
-const executeUpdate = async (
-  id: string,
-  type: "STAFF" | "CUSTOMER",
-  updatedById: string,
-  hashedPasswordString: string,
-) => {
-  if (type === "STAFF") {
-    const staffExists = await prisma.staff.findUnique({ where: { id } });
-    if (!staffExists) throw new NotFoundError("Target staff record not found.");
 
+export const updateSelfProfile = async (
+  accountId: string,
+  accountType: "STAFF" | "CUSTOMER",
+  updates: Record<string, any>
+) => {
+  const staffAllowed = ["firstName", "middleName", "lastName", "password"];
+  const customerAllowed = [
+    "firstName",
+    "middleName",
+    "lastName",
+    "password",
+    "phoneNumber",
+    "position",
+  ];
+
+  const allowedKeys = accountType === "STAFF" ? staffAllowed : customerAllowed;
+  const filteredData: Record<string, any> = {};
+  for (const key of allowedKeys) {
+    if (updates[key] !== undefined) {
+      filteredData[key] = updates[key];
+    }
+  }
+
+  if (filteredData.password) {
+    const saltRounds = 10;
+    filteredData.passwordHash = await bcrypt.hash(
+      filteredData.password,
+      saltRounds
+    );
+    delete filteredData.password;
+  }
+
+  const safeSelect = {
+    id: true,
+    firstName: true,
+    middleName: true,
+    lastName: true,
+    email: true,
+    updatedAt: true,
+  };
+
+  if (accountType === "STAFF") {
     return await prisma.staff.update({
-      where: { id },
-      data: {
-        passwordHash: hashedPasswordString,
-        updatedBy: { connect: { id: updatedById } },
+      where: { id: accountId },
+      data: { ...filteredData, updatedById: accountId },
+      select: {
+        ...safeSelect,
+        isSAdmin: true,
+        isManager: true,
+        isPSsupport: true,
       },
     });
   } else {
-    const customerExists = await prisma.customer.findUnique({ where: { id } });
-    if (!customerExists)
-      throw new NotFoundError("Target customer record not found.");
-
     return await prisma.customer.update({
-      where: { id },
+      where: { id: accountId },
       data: {
-        passwordHash: hashedPasswordString,
-        updatedById: updatedById,
+        ...filteredData,
+        updatedById: accountId,
+        updatedByType: "CUSTOMER",
+      },
+      select: { ...safeSelect, phoneNumber: true, position: true },
+    });
+  }
+};
+
+
+export const updateEmailByAdmin = async (
+  targetAccountId: string,
+  targetType: "STAFF" | "CUSTOMER",
+  newEmail: string,
+  adminId: string,
+  reason: string
+) => {
+  if (targetType === "STAFF") {
+    return await prisma.staff.update({
+      where: { id: targetAccountId },
+      data: {
+        email: newEmail,
+        emailChangeReason: reason,
+        updatedById: adminId,
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        emailChangeReason: true,
+        updatedAt: true,
+      },
+    });
+  } else {
+    return await prisma.customer.update({
+      where: { id: targetAccountId },
+      data: {
+        email: newEmail,
+        emailChangeReason: reason,
+        updatedById: adminId,
+        updatedByType: "STAFF",
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        emailChangeReason: true,
+        updatedAt: true,
       },
     });
   }

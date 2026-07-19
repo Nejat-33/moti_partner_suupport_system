@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import * as RoleService from "./roleassignment.service";
-
+/* 
 export const assignRole = async (
   req: Request,
   res: Response,
@@ -37,19 +37,19 @@ export const assignRole = async (
     const statusCode = error.statusCode || 500;
     res.status(statusCode).json({ message: error.message });
   }
-};
+}; */
+
 export const revokeRole = async (
   req: Request,
   res: Response,
 ): Promise<void> => {
   try {
-    const { staffId, roleToRemove, targetStructureId } = req.body;
+    const { staffId, roleToRemove, targetStructureId, defaultSectionId } = req.body;
     const adminId = (req as any).user?.userId;
 
     if (!staffId || !roleToRemove) {
       res.status(400).json({
-        message:
-          "Both staffId and roleToRemove fields are required parameters.",
+        message: "Both staffId and roleToRemove fields are required parameters.",
       });
       return;
     }
@@ -58,11 +58,21 @@ export const revokeRole = async (
       staffId,
       roleToRemove,
       targetStructureId,
-      updatedById: adminId,
+      defaultSectionId,
+      updatedById: adminId, 
     });
 
+    const isRevertedToSupport =
+      !updatedStaff.isSAdmin &&
+      !updatedStaff.isManager &&
+      updatedStaff.isPSsupport;
+
+    const customSuccessMessage = isRevertedToSupport
+      ? `Role '${roleToRemove}' removed. User had no remaining roles, so they were automatically downgraded to a baseline PS_SUPPORT agent.`
+      : `Role assignment '${roleToRemove}' has been successfully stripped.`;
+
     res.status(200).json({
-      message: `Role assignment '${roleToRemove}' has been successfully stripped.`,
+      message: customSuccessMessage,
       data: updatedStaff,
     });
   } catch (error: any) {

@@ -12,6 +12,8 @@ import { ServiceTypeRouter } from "../modules/service/serviceType.route";
 import { ProductRouter } from "../modules/product_category/product.Category.route";
 import { CaseReportRouter } from "../modules/cases/case.route";
 import { NotificationRouter } from "../modules/notifications/notification.route";
+import { AdminAnalyticsRouter } from "../modules/analytics/admin/adminAnalytic.route";
+import { UserAnalyticsRouter } from "../modules/analytics/user/user.route";
 
 const router = Router();
 
@@ -27,11 +29,13 @@ router.use("/notification", NotificationRouter);
 const PrivateRoute = Router();
 
 PrivateRoute.use("/pro/admin/approval", ApprovalRouter);
+PrivateRoute.use("/pro/admin/analytics", AdminAnalyticsRouter);
 PrivateRoute.use("/pro/role", RoleRoute);
 PrivateRoute.use("/pro/department", DepartmentRoute);
 PrivateRoute.use("/pro/admin/service", ServiceTypeRouter);
 PrivateRoute.use("/pro/division", DivisionRoute);
 PrivateRoute.use("/pro/section", SectionRouter);
+PrivateRoute.use("/pro/user", UserAnalyticsRouter);
 
 router.use("/", PrivateRoute);
 

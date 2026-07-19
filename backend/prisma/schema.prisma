@@ -8,6 +8,10 @@ datasource db {
   provider = "postgresql"
 }
 
+enum ChangeType {
+  ADMIN_EMAIL_UPDATE
+}
+
 enum StaffStatus {
    PENDING_VERIFICATION
    PENDING_APPROVAL
@@ -31,7 +35,7 @@ enum CaseStatus {
   OPEN
   ASSIGNED
   IN_PROGRESS
-  RESOLVED
+  WAITING_CUSTOMER_FEEDBACK
   CLOSED
 }
 
@@ -58,7 +62,8 @@ enum NotificationType {
   CASE_ASSIGNED
   CASE_REASSIGNED
   CASE_STATUS_CHANGED
-  CASE_RESOLVED
+  CASE_CLOSED
+  CASE_IN_PROGRESS
   FEEDBACK_SUBMITTED
 }
 
@@ -148,19 +153,43 @@ model Organization {
   id        String   @id @default(uuid())
   name      String   @unique @db.VarChar(150)
   isActive  Boolean  @default(true)
+
   createdAt DateTime @default(now())
   createdBy String?
-  updatedAt DateTime  @updatedAt
+  updatedAt DateTime @updatedAt
   updatedBy String?
 
-  customers Customer[]
+  customers    Customer[]
+  emailDomains EmailDomain[]
 
   @@map("organizations")
 }
 
+model EmailDomain {
+  id             String       @id @default(uuid())
+  domain         String       @unique @db.VarChar(255)
+  isPrimary      Boolean      @default(false)
+  isActive       Boolean      @default(true)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime @default(now())
+  createdBy      String?
+  updatedAt      DateTime @updatedAt
+  updatedBy      String?
+
+  @@map("email_domains")
+}
+
+
+
+
 model Staff {
   id                String      @id @default(uuid())
-  fullName          String      @db.VarChar(100)
+  firstName          String      @db.VarChar(100)
+  middleName          String      @db.VarChar(100)
+  lastName          String      @db.VarChar(100)
   email             String      @unique @db.VarChar(255)
   passwordHash      String      @db.VarChar(255)
   gender            Gender
@@ -180,7 +209,7 @@ model Staff {
   updatedById      String?
   updatedBy        Staff?      @relation("StaffUpdatedBy", fields: [updatedById], references: [id])
   updatedStaff     Staff[]     @relation("StaffUpdatedBy")
-
+emailChangeReason String?  @db.Text
   assignedCases       CaseReport[]              @relation("AssignedPSsupport")
   managedDepartment         Department?              @relation("DepartmentManager")
   managedDivision           Division?                @relation("DivisionManager")
@@ -206,7 +235,9 @@ model Staff {
 
 model Customer {
   id               String         @id @default(uuid())
-  fullName         String         @db.VarChar(100)
+  firstName          String      @db.VarChar(100)
+  middleName          String      @db.VarChar(100)
+  lastName          String      @db.VarChar(100)
   email            String         @unique @db.VarChar(255)
   phoneNumber      String         @db.VarChar(30)
   passwordHash     String         @db.VarChar(255)
@@ -220,6 +251,7 @@ model Customer {
   lockedUntil      DateTime?
   createdAt        DateTime       @default(now())
   createdById      String?
+  emailChangeReason String?  @db.Text
   createdByType    PartyType        
   updatedAt        DateTime       @updatedAt
   updatedById      String?
@@ -232,6 +264,20 @@ model Customer {
 
 
   @@map("customers")
+}
+
+model ProfileAuditLog {
+  id              String     @id @default(uuid())
+  targetAccountId String     @db.VarChar(255) 
+  targetType      PartyType                   
+  changedById     String     @db.VarChar(255) 
+  changeType      ChangeType
+  reason          String     @db.Text         
+  oldData         Json?                       
+  newData         Json?                      
+  createdAt       DateTime   @default(now())
+
+  @@map("profile_audit_logs")
 }
 
 model AuthToken {
@@ -323,6 +369,7 @@ model CaseReport {
   productCategory      ProductCategory     @relation(fields: [productCategoryId], references: [id])
   productSubcategoryId String? 
   productSubcategory   ProductSubcategory? @relation(fields: [productSubcategoryId], references: [id])
+  creationReason       String?
   subject              String              @db.VarChar(255)
   description          String              @db.Text
   status               CaseStatus          @default(OPEN)

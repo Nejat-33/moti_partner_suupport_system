@@ -11,7 +11,9 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   const {
-    fullName,
+    firstName,
+    lastName,
+    middleName,
     email,
     password,
     gender,
@@ -21,7 +23,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
   } = req.body;
 
   if (
-    !fullName ||
+    !firstName ||
+    !lastName ||
+    !middleName ||
     !email ||
     !password ||
     !gender ||
@@ -48,8 +52,13 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  if (fullName.trim().length < 2) {
-    res.status(400).json({ error: "Full name parameter is too short." });
+  if (firstName.trim().length < 2) {
+    res.status(400).json({ error: "First name parameter is too short." });
+    return;
+  }
+
+  if (lastName.trim().length < 2) {
+    res.status(400).json({ error: "Last name parameter is too short." });
     return;
   }
 
@@ -60,7 +69,9 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
   try {
     const result = await RegisterCustomer({
-      fullName: fullName.trim(),
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      middleName: middleName.trim(),
       email: email.trim().toLowerCase(),
       passwordPlain: password,
       gender,

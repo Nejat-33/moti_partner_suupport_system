@@ -1,39 +1,51 @@
-import dotenv from "dotenv";
+// prisma/seed.ts
+import {  Gender, StaffStatus } from "../generated/prisma/client";
+import bcrypt from "bcrypt";
+import { prisma } from "../src/config/database";
 
-dotenv.config({ path: ".env" });
 
-import { PrismaClient } from "../generated/prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
-
-const prisma = new PrismaClient({
-  adapter: new PrismaPg(process.env.DATABASE_URL ?? ""),
-});
 
 async function main() {
-  const organizations = [
-    {
-      name: "Commercial Bank of Ethiopia",
-    },
-    {
-      name: "Dashen Bank",
-    },
-    {
-      name: "Awash Bank",
-    },
-  ];
+  const adminEmail = "admin@yourdomain.com";
 
-  for (const organization of organizations) {
-    await prisma.organization.upsert({
-      where: { name: organization.name },
-      update: { name: organization.name },
-      create: organization,
-    });
+  const existingAdmin = await prisma.staff.findUnique({
+    where: { email: adminEmail },
+  });
+
+  if (existingAdmin) {
+    console.log("System Admin already exists. Skipping seed.");
+    return;
   }
+
+  const defaultPassword = "Admin@123"; 
+  const passwordHash = await bcrypt.hash(defaultPassword, 10);
+
+  const admin = await prisma.staff.create({
+    data: {
+      firstName: "System",
+      middleName: "Super",
+      lastName: "Admin",
+      email: "nejatebrahim35@gmail.com",
+      passwordHash: passwordHash,
+      gender: Gender.FEMALE, 
+      isSAdmin: true,
+      isManager: false,
+      isPSsupport: false,
+      status: StaffStatus.ACTIVE,
+    },
+  });
+
+  console.log("System Admin seeded successfully:");
+  console.log({
+    id: admin.id,
+    email: admin.email,
+    isSAdmin: admin.isSAdmin,
+  });
 }
 
 main()
-  .catch((error) => {
-    console.error("Seed failed:", error);
+  .catch((e) => {
+    console.error("Error seeding database:", e);
     process.exit(1);
   })
   .finally(async () => {

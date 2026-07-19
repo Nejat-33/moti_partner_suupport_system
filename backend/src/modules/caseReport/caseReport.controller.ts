@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import * as CaseService from "./caseReport.service";
-import { CasePriority, CaseStatus } from "@prisma/client";
+import { CasePriority, CaseStatus } from "../../../generated/prisma/client";
 import { BadRequestError } from "../../utils/error";
 
 export const GetFilteredCases = async (req: Request, res: Response) => {

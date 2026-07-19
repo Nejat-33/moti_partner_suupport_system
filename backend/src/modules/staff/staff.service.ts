@@ -6,7 +6,9 @@ import crypto from "crypto";
 // const ALLOWED_STAFF_DOMAIN = "motiengineering.com";
 
 export const Register = async (data: {
-  fullName: string;
+  firstName: string;
+  lastName: string;
+  middleName: string;
   email: string;
   passwordPlain: string;
   gender: "MALE" | "FEMALE";
@@ -36,7 +38,9 @@ export const Register = async (data: {
   const txResult = await prisma.$transaction(async (tx) => {
     const newStaff = await tx.staff.create({
       data: {
-        fullName: data.fullName,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        middleName: data.middleName,
         email: data.email,
         passwordHash,
         gender: data.gender,
@@ -81,7 +85,9 @@ export const Register = async (data: {
     return {
       staffId: selfReferencedStaff.id,
       email: selfReferencedStaff.email,
-      fullName: selfReferencedStaff.fullName,
+      firstName: selfReferencedStaff.firstName,
+      lastName: selfReferencedStaff.lastName,
+      middleName: selfReferencedStaff.middleName,
       emailLogId: loggedEmail.id,
       rawToken,
     };
@@ -89,7 +95,7 @@ export const Register = async (data: {
 
   const deliverySuccess = await sendVerificationEmail(
     txResult.email,
-    txResult.fullName,
+    txResult.firstName + " " + txResult.middleName + " " + txResult.lastName,
     txResult.rawToken,
     "STAFF",
   );
@@ -210,13 +216,15 @@ export const resendStaffVerification = async (email: string) => {
       emailLogId: loggedEmail.id,
       rawToken,
       email: staff.email,
-      fullName: staff.fullName,
+      firstName: staff.firstName,
+      lastName: staff.lastName,
+      middleName: staff.middleName,
     };
   });
 
   const deliverySuccess = await sendVerificationEmail(
     txResult.email,
-    txResult.fullName,
+    txResult.firstName + " " + txResult.middleName + " " + txResult.lastName,
     txResult.rawToken,
     "STAFF",
   );

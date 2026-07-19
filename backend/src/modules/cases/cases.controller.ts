@@ -5,7 +5,7 @@ import {
   BadRequestError,
   NotFoundError,
 } from "../../utils/error";
-import { CasePriority } from "@prisma/client";
+import { CasePriority } from "../../../generated/prisma/client"
 import { prisma } from "../../config/database";
 
 const hasStructuralAuthorization = (
@@ -59,43 +59,25 @@ const hasStructuralAuthorization2 = (actor: any, targetCase: any): boolean => {
   return false;
 };
 
-export const CreateCase = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
+export const createCustomerCase = async (req: Request, res: Response): Promise<void> => {
   try {
     const actor = (req as any).user;
+    const customerId = actor?.id || actor?.userId;
 
-    if (!actor || !actor.userId) {
+    if (!customerId) {
       throw new ForbiddenError("Access Denied: Invalid token credentials.");
     }
 
     const customerRecord = await prisma.customer.findUnique({
-      where: { id: actor.userId },
+      where: { id: customerId },
     });
 
-    let isCustomer = !!customerRecord;
-    let isSAdmin = false;
-
-    if (!isCustomer) {
-      const staffRecord = await prisma.staff.findUnique({
-        where: { id: actor.userId },
-      });
-
-      if (staffRecord && staffRecord.isSAdmin) {
-        isSAdmin = true;
-      }
-    }
-
-    if (!isCustomer && !isSAdmin) {
-      throw new ForbiddenError(
-        "Access Denied: Only customers or system administrators can log a new case.",
-      );
+    if (!customerRecord) {
+      throw new ForbiddenError("Access Denied: Only customers can access this route.");
     }
 
     const {
       branchName,
-      customerId,
       productCategoryId,
       productSubcategoryId,
       subject,
@@ -103,10 +85,70 @@ export const CreateCase = async (
       serviceTypeId,
     } = req.body;
 
-    const resolvedCustomerId = isCustomer ? actor.userId : customerId;
+    if (
+      !branchName ||
+      !productCategoryId ||
+      !productSubcategoryId ||
+      !subject ||
+      !description ||
+      !serviceTypeId
+    ) {
+      throw new BadRequestError("Missing core parameters needed to initialize Case Report.");
+    }
+
+    const result = await CaseService.createCase({
+  branchName,
+  customerId,
+  productCategoryId,
+  productSubcategoryId,
+  subject,
+  description,
+  serviceTypeId,
+});
+
+    res.status(201).json({
+      message: "Case Report initialized successfully.",
+      data: result,
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+
+export const createAdminCase = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = (req as any).user;
+    const staffId = actor?.id || actor?.userId;
+
+    if (!staffId) {
+      throw new ForbiddenError("Access Denied: Invalid token credentials.");
+    }
+
+    const staffRecord = await prisma.staff.findUnique({
+      where: { id: staffId },
+    });
+
+    if (!staffRecord || (!staffRecord.isSAdmin && !staffRecord.isManager)) {
+      throw new ForbiddenError(
+        "Access Denied: Only System Administrators or Managers can log a case on behalf of a customer."
+      );
+    }
+
+    const {
+      customerEmail,
+      reason,
+      branchName,
+      productCategoryId,
+      productSubcategoryId,
+      subject,
+      description,
+      serviceTypeId,
+    } = req.body;
 
     if (
-      !resolvedCustomerId ||
+      !customerEmail ||
+      !reason ||
       !branchName ||
       !productCategoryId ||
       !productSubcategoryId ||
@@ -115,32 +157,40 @@ export const CreateCase = async (
       !serviceTypeId
     ) {
       throw new BadRequestError(
-        "Missing core parameters needed to initialize Case Report.",
+        "Missing required fields: customerEmail, reason, and all core case parameters are mandatory."
       );
     }
 
-    if (isSAdmin) {
-      const inputCustomerCheck = await prisma.customer.findUnique({
-        where: { id: customerId },
-      });
-      if (!inputCustomerCheck) {
-        throw new NotFoundError(
-          "The specified customer account could not be found.",
-        );
-      }
+    if (typeof reason !== "string" || reason.trim().length < 5) {
+      throw new BadRequestError(
+        "Validation Failure: Please provide a valid reason for creating this case (at least 5 characters)."
+      );
+    }
+
+    const targetCustomer = await prisma.customer.findUnique({
+      where: { email: customerEmail.trim().toLowerCase() },
+    });
+
+    if (!targetCustomer) {
+      throw new NotFoundError(`No customer account found with email: ${customerEmail}`);
     }
 
     const result = await CaseService.createCase({
-      branchName,
-      customerId: resolvedCustomerId,
-      productCategoryId,
-      productSubcategoryId,
-      subject,
-      description,
-      serviceTypeId,
-    });
+  branchName,
+  customerId: targetCustomer.id,
+  productCategoryId,
+  productSubcategoryId,
+  subject,
+  description,
+  serviceTypeId,
+  creationReason: reason.trim(),
+  staffActorId: staffId, 
+});
 
-    res.status(201).json({ message: "Case Report initialized.", data: result });
+    res.status(201).json({
+      message: "Case Report logged on behalf of customer.",
+      data: result,
+    });
   } catch (error: any) {
     res.status(error.statusCode || 500).json({ message: error.message });
   }
@@ -335,7 +385,7 @@ export const GivePriority = async (req: Request, res: Response) => {
     const targetCase = await CaseService.getCaseWithStructuralScope(caseId);
     if (!targetCase) throw new NotFoundError("Case report record not found.");
 
-    if (targetCase.status === "RESOLVED" || targetCase.status === "CLOSED") {
+    if (targetCase.status === "WAITING_CUSTOMER_FEEDBACK" || targetCase.status === "CLOSED") {
       throw new BadRequestError(
         "Validation Failure: Cannot modify the priority of a RESOLVED case.",
       );
@@ -366,48 +416,92 @@ export const GivePriority = async (req: Request, res: Response) => {
   }
 };
 
-export const CloseCase = async (req: Request, res: Response) => {
+
+
+export const resolveCase = async (req: Request, res: Response): Promise<void> => {
   try {
+    const id = req.params.id as string;
+    const caseId = id;
     const actor = (req as any).user;
-    const caseId = req.params.id as string;
+    const agentId = actor?.id || actor?.userId;
+
+    if (!agentId) {
+      throw new ForbiddenError("Access Denied: Invalid staff token credentials.");
+    }
+
     const { resolutionSummary } = req.body;
 
-    if (!resolutionSummary)
-      throw new BadRequestError(
-        "A case cannot be closed without a resolutionSummary.",
-      );
-
-    const targetCase = await CaseService.getCaseWithStructuralScope(caseId);
-    if (!targetCase) throw new NotFoundError("Case report record not found.");
-
-    const canCloseRole =
-      actor.role?.includes("MANAGER") || actor.role === "PS_SUPPORT";
-
-    if (
-      actor.role === "PS_SUPPORT" &&
-      targetCase.assignedSupportId !== actor.userId
-    ) {
-      throw new ForbiddenError(
-        "Access Denied: PS Support agents can only close cases directly assigned to them.",
-      );
+    if (!resolutionSummary) {
+      throw new BadRequestError("A formal resolution summary payload is required to resolve this case.");
     }
 
-    if (
-      !actor.isSAdmin &&
-      !(canCloseRole && hasStructuralAuthorization(actor, targetCase))
-    ) {
-      throw new ForbiddenError(
-        "Access Denied: You do not have permissions to close this structural unit case.",
-      );
-    }
+    const result = await CaseService.resolveCase(caseId, resolutionSummary, agentId);
 
-    const result = await CaseService.closeCaseReport(
-      caseId,
-      resolutionSummary,
-      actor.userId,
-    );
     res.status(200).json({
-      message: "Case successfully resolved and closed.",
+      message: "Case report marked as RESOLVED. Verification notice dispatched to customer.",
+      data: result,
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+
+export const closeCaseWithFeedback = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const caseId = id;
+
+    const actor = (req as any).user;
+    const customerId = actor?.id || actor?.userId;
+
+    if (!customerId) {
+      throw new ForbiddenError("Access Denied: Invalid customer token credentials.");
+    }
+
+    const { rating, comment } = req.body;
+
+    if (rating === undefined || rating === null) {
+      throw new BadRequestError("A customer satisfaction score rating parameter is required.");
+    }
+
+    const parsedRating = parseInt(rating, 10);
+    if (isNaN(parsedRating) || parsedRating < 1 || parsedRating > 5) {
+      throw new BadRequestError("Validation Failure: Rating metrics must be an integer between 1 and 5.");
+    }
+    
+    const result = await CaseService.closeCaseWithFeedback(
+      caseId,
+      parsedRating,
+      comment,
+      customerId
+    );
+
+    res.status(200).json({
+      message: "Feedback submitted successfully. Case file marked as CLOSED.",
+      data: result,
+    });
+  } catch (error: any) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+};
+
+
+export const rejectedCase = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = req.params.id as string 
+    const caseId = id;
+    const actor = (req as any).user;
+    const customerId = actor?.id || actor?.userId;
+
+    if (!customerId) {
+      throw new ForbiddenError("Access Denied: Invalid customer token credentials.");
+    }
+
+    const result = await CaseService.reopenCase(caseId, customerId);
+
+    res.status(200).json({
+      message: "Resolution rejected. Case file successfully returned to active status queue.",
       data: result,
     });
   } catch (error: any) {

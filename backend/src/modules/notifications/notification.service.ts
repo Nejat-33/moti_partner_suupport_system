@@ -1,6 +1,6 @@
 // src/services/notification.service.ts
 import { prisma } from "../../config/database";
-import { PartyType, NotificationType } from "@prisma/client";
+import { PartyType, NotificationType } from "../../../generated/prisma/client";
 
 export class NotificationService {
   static async createSystemNotification(input: {
